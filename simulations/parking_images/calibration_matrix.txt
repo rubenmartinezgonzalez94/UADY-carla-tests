@@ -1,0 +1,15 @@
+def get_calibration_matrix(image_width , image_height, fov=90):
+    focal_length = image_width / (2 * np.tan(fov * np.pi / 360))
+    calibration_matrix = np.array([[focal_length, 0, image_width / 2],
+                                   [0, focal_length, image_height / 2],
+                                   [0, 0, 1]])
+    return calibration_matrix
+
+
++-+-----+-----+-----+
+| |0    |1    |2    |
++-+-----+-----+-----+
+|0|960.0|0.0  |960.0|
+|1|0.0  |960.0|540.0|
+|2|0.0  |0.0  |1.0  |
++-+-----+-----+-----+
