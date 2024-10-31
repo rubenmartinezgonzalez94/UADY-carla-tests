@@ -39,11 +39,26 @@ class ImageProcessing:
         edges = self.canny_coutours(binary_gray_image)
         lines = self.get_hough_lines(edges)
         lineEqs = self.get_null_space_from_lines(lines)
-        intersections = self.get_intersection(lines, lineEqs)
-        centroids = self.find_intersection_centroids(intersections)
+        intersections, intLines = self.get_intersection(lines, lineEqs)
+        centroids, labels = self.find_intersection_centroids(intersections)
+        cv2.namedWindow("Intersections",cv2.WINDOW_NORMAL)
+        for i in range(len(intersections)):
+           locImage = self.image.copy()
+           idx1, idx2 = intLines[i]
+           print("idx1 = ", idx1)
+           print("idx2 = ", idx2)
+           point = intersections[i]
+           x11, y11, x12, y12 = lines[idx1][0]
+           x21, y21, x22, y22 = lines[idx2][0]
+           cv2.line(locImage, (x11, y11), (x12, y12), (0, 255, 0), 2)   
+           cv2.line(locImage, (x21, y21), (x22, y22), (0, 255, 0), 2)
+           cv2.circle(locImage, (int(point[0]), int(point[1])), radius=5, color=(255, 0, 0), thickness=-1)
+           cv2.imshow("Intersections", locImage)
+           cv2.waitKey(0)
+        cv2.destroyWindow("Intersections")
         # self.draw_centroids(centroids, intersections)
         # self.draw_centroids_in_image(centroids, intersections, self.image)
-        return centroids, intersections
+        return centroids, intersections,  labels
 
     def cut_below_horizon(self, image):
         height, width = image.shape
@@ -98,20 +113,22 @@ class ImageProcessing:
         nLines = len(lines)
         nComb = ((nLines * (nLines - 1)) // 2)
         pn = np.zeros((nComb, 3))
+        intLines = np.zeros((nComb,2), dtype = 'int32')
         idx = 0
         for i in range(nLines - 1):
             for j in range(i + 1, nLines):
                 homoP = np.cross(lineEqs[i, :], lineEqs[j, :])
-                if not self.areEqual(homoP[2], 0., 7):
+                if not self.areEqual(homoP[2], 0., 8):
                     homoP /= homoP[2]
                     pn[idx, :] = homoP
+                    intLines[idx,:]=[i,j]
                     idx += 1
-        return pn[:idx, :]
+        return pn[:idx, :], intLines[:idx,:]
 
     def find_intersection_centroids(self, intersections):
-        kmeans = KMeans(n_clusters=2)
+        kmeans = KMeans(n_clusters=2, n_init='auto')
         kmeans.fit(intersections[:, :2])
-        return kmeans.cluster_centers_
+        return kmeans.cluster_centers_, kmeans.labels_
 
     def draw_centroids(self, centroids, intersections):
         fig = plt.figure()
