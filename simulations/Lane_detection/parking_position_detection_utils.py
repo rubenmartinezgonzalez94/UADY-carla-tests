@@ -33,7 +33,7 @@ class ImageProcessing:
     def __init__(self, image):
         self.image = image
 
-    def get_vanishing_points(self):
+    def get_vanishing_points(self, print_intersections=False):
         bottom_half = self.cut_below_horizon(self.image)
         binary_gray_image = self.treshold_image(bottom_half)
         edges = self.canny_coutours(binary_gray_image)
@@ -41,24 +41,12 @@ class ImageProcessing:
         lineEqs = self.get_null_space_from_lines(lines)
         intersections, intLines = self.get_intersection(lines, lineEqs)
         centroids, labels = self.find_intersection_centroids(intersections)
-        cv2.namedWindow("Intersections",cv2.WINDOW_NORMAL)
-        for i in range(len(intersections)):
-           locImage = self.image.copy()
-           idx1, idx2 = intLines[i]
-           print("idx1 = ", idx1)
-           print("idx2 = ", idx2)
-           point = intersections[i]
-           x11, y11, x12, y12 = lines[idx1][0]
-           x21, y21, x22, y22 = lines[idx2][0]
-           cv2.line(locImage, (x11, y11), (x12, y12), (0, 255, 0), 2)   
-           cv2.line(locImage, (x21, y21), (x22, y22), (0, 255, 0), 2)
-           cv2.circle(locImage, (int(point[0]), int(point[1])), radius=5, color=(255, 0, 0), thickness=-1)
-           cv2.imshow("Intersections", locImage)
-           cv2.waitKey(0)
-        cv2.destroyWindow("Intersections")
+
+        if print_intersections:
+            self.print_intersections(intersections, intLines, lines, lineEqs)
         # self.draw_centroids(centroids, intersections)
         # self.draw_centroids_in_image(centroids, intersections, self.image)
-        return centroids, intersections,  labels
+        return centroids, intersections, labels
 
     def cut_below_horizon(self, image):
         height, width = image.shape
@@ -113,17 +101,41 @@ class ImageProcessing:
         nLines = len(lines)
         nComb = ((nLines * (nLines - 1)) // 2)
         pn = np.zeros((nComb, 3))
-        intLines = np.zeros((nComb,2), dtype = 'int32')
+        intLines = np.zeros((nComb, 2), dtype='int32')
         idx = 0
         for i in range(nLines - 1):
             for j in range(i + 1, nLines):
                 homoP = np.cross(lineEqs[i, :], lineEqs[j, :])
                 if not self.areEqual(homoP[2], 0., 8):
-                    homoP /= homoP[2]
-                    pn[idx, :] = homoP
-                    intLines[idx,:]=[i,j]
-                    idx += 1
-        return pn[:idx, :], intLines[:idx,:]
+                    if self.get_angle_between(lineEqs[i, :], lineEqs[j, :]) < 45:
+                        print("angle=", self.get_angle_between(lineEqs[i, :], lineEqs[j, :]))
+                        homoP /= homoP[2]
+                        pn[idx, :] = homoP
+                        intLines[idx, :] = [i, j]
+                        idx += 1
+        return pn[:idx, :], intLines[:idx, :]
+
+    def get_angle_between(self, line1, line2):
+        # dot_product = np.dot(line1, line2)
+        # dot_product = line1[0] * line2[0] + line1[1] * line2[1] + line1[2] * line2[2]
+        # theta_rad = np.arccos(dot_product)  # Aseguramos que cos_theta esté en el rango [-1, 1]
+        # theta_deg = np.degrees(theta_rad)
+
+        # Extraer A y B de cada recta
+        A1, B1, _ = line1
+        A2, B2, _ = line2
+
+        # Calcular el coseno del ángulo entre las rectas
+        cos_theta = abs(A1 * A2 + B1 * B2) / (np.sqrt(A1 ** 2 + B1 ** 2) * np.sqrt(A2 ** 2 + B2 ** 2))
+        theta_rad = np.arccos(cos_theta)  # ángulo en radianes
+        theta_deg = np.degrees(theta_rad)  # ángulo en grados
+
+        print("line1=", line1)
+        print("line2=", line2)
+        print("theta_rad=", theta_rad)
+        print("theta_deg=", theta_deg)
+
+        return theta_deg
 
     def find_intersection_centroids(self, intersections):
         kmeans = KMeans(n_clusters=2, n_init='auto')
@@ -161,3 +173,85 @@ class ImageProcessing:
                            markerSize=10, thickness=2)
 
         return image
+
+    def print_intersections(self, intersections, intLines, lines, lineEqs):
+        cv2.namedWindow("Intersections", cv2.WINDOW_NORMAL)
+        for i in range(len(intersections)):
+            locImage = self.image.copy()
+            idx1, idx2 = intLines[i]
+            print("idx1 = ", idx1)
+            print("idx2 = ", idx2)
+            point = intersections[i]
+            x11, y11, x12, y12 = lines[idx1][0]
+            x21, y21, x22, y22 = lines[idx2][0]
+
+            angle = self.get_angle_between(lineEqs[idx1, :], lineEqs[idx2, :])
+            cv2.putText(locImage, "Angle: %.2f" % angle, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+
+            cv2.line(locImage, (x11, y11), (x12, y12), (0, 255, 0), 2)
+            cv2.line(locImage, (x21, y21), (x22, y22), (0, 255, 0), 2)
+            cv2.circle(locImage, (int(point[0]), int(point[1])), radius=5, color=(255, 0, 0), thickness=-1)
+            cv2.imshow("Intersections", locImage)
+            cv2.waitKey(0)
+        cv2.destroyWindow("Intersections")
+
+
+def load_tagged_images(directory):
+    images = []
+    for filename in os.listdir(directory):
+        if filename.endswith(".jpg") or filename.endswith(".png"):
+            route = os.path.join(directory, filename)
+            images.append(ImageInfo(route))
+    return images
+
+
+def draw_centroids_in_image(centroids, intersections, labels, image):
+    # Dibuja las intersecciones en color azul
+    n = len(intersections)
+    print("n=", n)
+    print("labels.shape=", labels.shape)
+    for idx in range(n):
+        # print("labels[%d]=" % idx, labels[idx])
+        point = intersections[idx]
+        # print("point", point)
+        if labels[idx] == 0:
+            cv2.circle(image, (int(point[0]), int(point[1])), radius=5, color=(255, 0, 0), thickness=-1)
+        else:
+            cv2.circle(image, (int(point[0]), int(point[1])), radius=5, color=(0, 255, 0), thickness=-1)
+
+    # Dibuja los centroides en color rojo con una 'x'
+    for point in centroids:
+        cv2.drawMarker(image, (int(point[0]), int(point[1])), color=(0, 0, 255), markerType=cv2.MARKER_TILTED_CROSS,
+                       markerSize=10, thickness=2)
+
+    return image
+
+
+images_info = load_tagged_images('../parking_sequence')
+images_info.sort(key=lambda x: x.time, reverse=False)
+
+cv2.namedWindow("Images", cv2.WINDOW_NORMAL)
+for i in range(0):  # Repeat 1 time
+    for idx in range(len(images_info)):
+        image = cv2.imread(images_info[idx].image_path, cv2.IMREAD_COLOR)
+        cv2.imshow("Images", image)
+        cv2.waitKey(100)
+cv2.destroyAllWindows()
+
+cv2.namedWindow("Centroids", cv2.WINDOW_NORMAL)
+for i in range(1):  # Repeat 1 time
+    for idx in range(len(images_info)):
+        image = cv2.imread(images_info[idx].image_path, cv2.IMREAD_COLOR)
+
+        imageGray = cv2.imread(images_info[idx].image_path, cv2.IMREAD_GRAYSCALE)
+
+        image_processing = ImageProcessing(imageGray)  # Instantiate the class
+
+        centroids, intersections, labels = image_processing.get_vanishing_points(print_intersections=True)
+
+        image_with_centroids = draw_centroids_in_image(centroids, intersections, labels, image.copy())
+
+        cv2.imshow("Centroids", image_with_centroids)
+        cv2.waitKey(1)
+
+cv2.destroyAllWindows()
