@@ -1,3 +1,6 @@
+#! /usr/bin/env python3
+# encoding: utf-8
+
 import os
 import cv2
 import numpy as np
@@ -5,6 +8,8 @@ import matplotlib.pyplot as plt
 import numpy.linalg as la
 from sklearn.cluster import KMeans
 from mpl_toolkits.mplot3d import Axes3D
+
+Paleta = np.load("Paleta.npy")
 
 
 class ImageInfo:
@@ -33,14 +38,18 @@ class ImageProcessing:
     def __init__(self, image):
         self.image = image
 
-    def get_vanishing_points(self, print_intersections=False):
+    def get_vanishing_points(self, n=0, n_clusters=1, print_intersections=False):
         bottom_half = self.cut_below_horizon(self.image)
         binary_gray_image = self.treshold_image(bottom_half)
         edges = self.canny_coutours(binary_gray_image)
         lines = self.get_hough_lines(edges)
         lineEqs = self.get_null_space_from_lines(lines)
         intersections, intLines = self.get_intersection(lines, lineEqs)
-        centroids, labels = self.find_intersection_centroids(intersections)
+
+        # fileName="Intersecciones_%05d" % n
+        # np.savez(fileName, lines=lines, lineEqs=lineEqs, intersections=intersections, intLines=intLines)
+
+        centroids, labels = self.find_intersection_centroids(intersections, n_clusters)
 
         if print_intersections:
             self.print_intersections(intersections, intLines, lines, lineEqs)
@@ -107,38 +116,14 @@ class ImageProcessing:
             for j in range(i + 1, nLines):
                 homoP = np.cross(lineEqs[i, :], lineEqs[j, :])
                 if not self.areEqual(homoP[2], 0., 8):
-                    if self.get_angle_between(lineEqs[i, :], lineEqs[j, :]) < 45:
-                        print("angle=", self.get_angle_between(lineEqs[i, :], lineEqs[j, :]))
-                        homoP /= homoP[2]
-                        pn[idx, :] = homoP
-                        intLines[idx, :] = [i, j]
-                        idx += 1
+                    homoP /= homoP[2]
+                    pn[idx, :] = homoP
+                    intLines[idx, :] = [i, j]
+                    idx += 1
         return pn[:idx, :], intLines[:idx, :]
 
-    def get_angle_between(self, line1, line2):
-        # dot_product = np.dot(line1, line2)
-        # dot_product = line1[0] * line2[0] + line1[1] * line2[1] + line1[2] * line2[2]
-        # theta_rad = np.arccos(dot_product)  # Aseguramos que cos_theta esté en el rango [-1, 1]
-        # theta_deg = np.degrees(theta_rad)
-
-        # Extraer A y B de cada recta
-        A1, B1, _ = line1
-        A2, B2, _ = line2
-
-        # Calcular el coseno del ángulo entre las rectas
-        cos_theta = abs(A1 * A2 + B1 * B2) / (np.sqrt(A1 ** 2 + B1 ** 2) * np.sqrt(A2 ** 2 + B2 ** 2))
-        theta_rad = np.arccos(cos_theta)  # ángulo en radianes
-        theta_deg = np.degrees(theta_rad)  # ángulo en grados
-
-        print("line1=", line1)
-        print("line2=", line2)
-        print("theta_rad=", theta_rad)
-        print("theta_deg=", theta_deg)
-
-        return theta_deg
-
-    def find_intersection_centroids(self, intersections):
-        kmeans = KMeans(n_clusters=2, n_init='auto')
+    def find_intersection_centroids(self, intersections, n_clusters):
+        kmeans = KMeans(n_clusters=n_clusters, n_init='auto')
         kmeans.fit(intersections[:, :2])
         return kmeans.cluster_centers_, kmeans.labels_
 
@@ -190,9 +175,13 @@ class ImageProcessing:
 
             cv2.line(locImage, (x11, y11), (x12, y12), (0, 255, 0), 2)
             cv2.line(locImage, (x21, y21), (x22, y22), (0, 255, 0), 2)
+            print("Lines = ", lines[idx1][0], lines[idx2][0])
+            print("LineEqs = ", lineEqs[idx1, :], lineEqs[idx2, :])
             cv2.circle(locImage, (int(point[0]), int(point[1])), radius=5, color=(255, 0, 0), thickness=-1)
             cv2.imshow("Intersections", locImage)
-            cv2.waitKey(0)
+            key = cv2.waitKey(0)
+            if key == 27:
+                break
         cv2.destroyWindow("Intersections")
 
 
@@ -204,7 +193,6 @@ def load_tagged_images(directory):
             images.append(ImageInfo(route))
     return images
 
-
 def draw_centroids_in_image(centroids, intersections, labels, image):
     # Dibuja las intersecciones en color azul
     n = len(intersections)
@@ -214,17 +202,43 @@ def draw_centroids_in_image(centroids, intersections, labels, image):
         # print("labels[%d]=" % idx, labels[idx])
         point = intersections[idx]
         # print("point", point)
-        if labels[idx] == 0:
-            cv2.circle(image, (int(point[0]), int(point[1])), radius=5, color=(255, 0, 0), thickness=-1)
-        else:
-            cv2.circle(image, (int(point[0]), int(point[1])), radius=5, color=(0, 255, 0), thickness=-1)
+        cv2.circle(image, (int(point[0]), int(point[1])), radius=2, color=Paleta[labels[idx], :].tolist(), thickness=-1)
 
     # Dibuja los centroides en color rojo con una 'x'
     for point in centroids:
-        cv2.drawMarker(image, (int(point[0]), int(point[1])), color=(0, 0, 255), markerType=cv2.MARKER_TILTED_CROSS,
-                       markerSize=10, thickness=2)
+        cv2.drawMarker(image, (int(point[0]), int(point[1])), color=(255, 0, 255), markerType=cv2.MARKER_TILTED_CROSS,
+                       markerSize=20, thickness=4)
 
     return image
+
+def get_angle_between(line1, line2):
+    # dot_product = np.dot(line1, line2)
+    # dot_product = line1[0] * line2[0] + line1[1] * line2[1] + line1[2] * line2[2]
+    # theta_rad = np.arccos(dot_product)  # Aseguramos que cos_theta esté en el rango [-1, 1]
+    # theta_deg = np.degrees(theta_rad)
+
+    # Extraer A y B de cada recta
+    A1, B1, C1 = line1
+    A2, B2, C2 = line2
+
+    # Calcular el coseno del ángulo entre las rectas
+    cos_theta = abs(A1 * A2 + B1 * B2 + C1 * C2) / (
+            np.sqrt(A1 ** 2 + B1 ** 2 + C1 ** 2) * np.sqrt(A2 ** 2 + B2 ** 2 + C2 ** 2))
+    theta_rad = np.arccos(cos_theta)  # ángulo en radianes
+    theta_deg = np.degrees(theta_rad)  # ángulo en grados
+
+    print("line1=", line1)
+    print("line2=", line2)
+    print("theta_rad=", theta_rad)
+    print("theta_deg=", theta_deg)
+
+    return theta_deg
+
+def count_Clusters(n, labels):
+    cont = np.zeros(n)
+    for idx in range(n):
+        cont[idx] = np.sum(labels == idx)
+    return cont
 
 
 images_info = load_tagged_images('../parking_sequence')
@@ -247,11 +261,24 @@ for i in range(1):  # Repeat 1 time
 
         image_processing = ImageProcessing(imageGray)  # Instantiate the class
 
-        centroids, intersections, labels = image_processing.get_vanishing_points(print_intersections=True)
+        centroids, intersections, labels = image_processing.get_vanishing_points(idx, n_clusters=50   ,
+                                                                                 print_intersections=False)
+        clustersSize = count_Clusters(len(centroids), labels)
+
+        idxMax = np.argmax(clustersSize)
+
+        cv2.drawMarker(image, (int(centroids[idxMax, 0]), int(centroids[idxMax][1])), color=(0, 0, 0),
+                       markerType=cv2.MARKER_TILTED_CROSS, markerSize=60, thickness=8)
+
+        print(clustersSize[idxMax])
 
         image_with_centroids = draw_centroids_in_image(centroids, intersections, labels, image.copy())
 
         cv2.imshow("Centroids", image_with_centroids)
-        cv2.waitKey(1)
+        cv2.waitKey(0)
+
+        key = cv2.waitKey(30)
+        if key == 27:
+            break
 
 cv2.destroyAllWindows()
