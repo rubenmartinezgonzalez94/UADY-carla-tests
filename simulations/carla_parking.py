@@ -3,8 +3,9 @@ import sys
 import cv2
 import numpy as np
 import time
+import math
 
-sys.path.append('E:/UADY/CARLA/CARLA_Latest/WindowsNoEditor/PythonAPI/carla')
+# sys.path.append('E:/UADY/CARLA/CARLA_Latest/WindowsNoEditor/PythonAPI/carla')
 
 import carla
 
@@ -17,6 +18,11 @@ class SimulationParking:
         self.blueprint_library = self.world.get_blueprint_library()
 
     def load_world(self, world_name):
+        current_world = self.client.get_world().get_map().name
+
+        if current_world == world_name:
+            return
+
         self.client.set_timeout(15.0)
         self.client.load_world(world_name)
 
@@ -31,6 +37,7 @@ class SimulationParking:
         return actor_vehicle
 
     def init_camera(self, vehicle, location, type, image):
+
         width, height, _ = image.shape
 
         bp_camera = self.blueprint_library.find(f'sensor.camera.{type}')
@@ -65,6 +72,50 @@ class SimulationParking:
                 brake=brake
             )
         )
+
+    def move_vehicle_to(self, vehicle, destination):
+
+        destination_Transform = carla.Transform(
+            carla.Location(x=destination['x'], y=destination['y'], z=destination['z'])
+        )
+        destination_location = destination_Transform.location
+
+        # Inicializar el control del vehículo
+        control = carla.VehicleControl()
+        control.throttle = 0.0
+        control.steer = 0.0
+        control.brake = 0.0
+        # Máximo ángulo permitido para el giro (en radianes)
+        max_steer_angle = math.radians(30)
+
+        # Bucle de control para moverse al destino
+        while True:
+            distance = self.calculate_distance_actor_to_location(vehicle, destination_location)
+            print(f"distance: {distance}")
+
+            angle = self.calculate_angle_actor_to_location(vehicle, destination_location)
+            # conversion from degrees to -1 to +1 input for apply control function
+            # Ajusta el ángulo al rango [-180, 180]
+            alfa = ((angle + 180) % 360) - 180
+            # Normaliza el ángulo al rango [-1, 1]
+            alfa =  alfa / 180
+            control.steer = alfa / 75
+
+            # Ajustar la aceleración
+            if distance > 1.0:  # Si la distancia al destino es mayor que 1 metro
+                control.throttle = 0.15
+                control.brake = 0.0
+            else:
+                control.throttle = 0.0
+                control.brake = 1.0
+                vehicle.apply_control(control)
+                print("Llegó al destino")
+                break
+
+            # Aplicar el control al vehículo
+            vehicle.apply_control(control)
+            self.world.tick()
+            time.sleep(0.05)
 
     def capture_image(self, image, image_path, tags):
         image_array = np.frombuffer(image.raw_data, dtype=np.uint8)
