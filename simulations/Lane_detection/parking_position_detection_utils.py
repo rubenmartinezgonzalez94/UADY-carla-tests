@@ -123,7 +123,7 @@ class ImageProcessing:
         return pn[:idx, :], intLines[:idx, :]
 
     def find_intersection_centroids(self, intersections, n_clusters):
-        kmeans = KMeans(n_clusters=n_clusters, n_init='auto')
+        kmeans = KMeans(n_clusters=n_clusters, n_init=10)
         kmeans.fit(intersections[:, :2])
         return kmeans.cluster_centers_, kmeans.labels_
 
@@ -241,7 +241,8 @@ def count_Clusters(n, labels):
     return cont
 
 
-images_info = load_tagged_images('../parking_sequence')
+images_info = load_tagged_images('../manual_sequence/sec4/')
+# images_info = load_tagged_images('../parking_sequence/')
 images_info.sort(key=lambda x: x.time, reverse=False)
 
 cv2.namedWindow("Images", cv2.WINDOW_NORMAL)
