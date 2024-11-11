@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 import time
 import math
+import pygame
 
 # sys.path.append('E:/UADY/CARLA/CARLA_Latest/WindowsNoEditor/PythonAPI/carla')
 
@@ -98,7 +99,7 @@ class SimulationParking:
             # Ajusta el ángulo al rango [-180, 180]
             alfa = ((angle + 180) % 360) - 180
             # Normaliza el ángulo al rango [-1, 1]
-            alfa =  alfa / 180
+            alfa = alfa / 180
             control.steer = alfa / 75
 
             # Ajustar la aceleración
@@ -171,3 +172,82 @@ class SimulationParking:
 
     def get_location_by_coordinates(self, x, y, z):
         return carla.Location(x=x, y=y, z=z)
+
+    def enable_manual_control(self, vehicle):
+        """
+        Controla un vehículo en CARLA utilizando el teclado.
+        W - Acelerar
+        S - Frenar
+        A - Girar a la izquierda
+        D - Girar a la derecha
+        R - Revesa On/Off
+        Escape - Salir del control manual
+        """
+        pygame.init()
+        screen = pygame.display.set_mode((400, 300))
+        pygame.display.set_caption("Manual Vehicle Control")
+
+        control = carla.VehicleControl()
+        control.throttle = 0.0
+        control.steer = 0.0
+        control.brake = 0.0
+        control.hand_brake = False
+        control.reverse = False
+
+        clock = pygame.time.Clock()
+
+        print("Controles: W (acelerar), S (frenar), A (izquierda), D (derecha), Espacio (freno de mano)")
+
+        try:
+            while True:
+                # Manejar eventos de salida
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT:
+                        return
+
+                # Obtener el estado de todas las teclas
+                keys = pygame.key.get_pressed()
+
+                # Control del vehículo
+                if keys[pygame.K_w]:
+                    control.throttle = 0.6  # Acelerar
+                    control.brake = 0.0
+                else:
+                    control.throttle = 0.0
+
+                if keys[pygame.K_s]:
+                    control.brake = 0.8  # Frenar
+                    control.throttle = 0.0
+                else:
+                    control.brake = 0.0
+
+                if keys[pygame.K_a]:
+                    control.steer = max(-1.0, control.steer - 0.1)  # Girar a la izquierda
+                elif keys[pygame.K_d]:
+                    control.steer = min(1.0, control.steer + 0.1)  # Girar a la derecha
+                else:
+                    control.steer = 0.0  # No girar
+
+                if keys[pygame.K_r]:
+                    control.reverse = not control.reverse # Reversa On/Off
+
+                if keys[pygame.K_SPACE]:
+                    control.hand_brake = True
+                else:
+                    control.hand_brake = False
+
+                if keys[pygame.K_ESCAPE]:
+                    pygame.quit()
+                    print("\nControl manual terminado")
+                    return
+                # Aplicar el control al vehículo
+                vehicle.apply_control(control)
+
+                # Establecer FPS para el bucle de control
+                clock.tick(30)
+                self.world.tick()
+
+        except KeyboardInterrupt:
+            print("\nControl manual terminado")
+        finally:
+            pygame.quit()
