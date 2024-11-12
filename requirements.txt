@@ -1,0 +1,10 @@
+# a python version 3.8 is required for Carla
+../carla/dist/carla-0.9.15-cp38-cp38-linux_x86_64.whl
+tensorflow[and-cuda]
+# import tensorflow as tf; print(tf.config.list_physical_devices('GPU'))
+gymnasium
+pygame
+stable_baselines3
+highway_env
+opencv-python
+numpy
