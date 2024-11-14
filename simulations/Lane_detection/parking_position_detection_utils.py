@@ -74,6 +74,11 @@ class ImageProcessing:
         return edges
 
     def get_hough_lines(self, image):
+        # rho: Resolución del parámetro de distancia en píxeles.
+        # theta: Resolución del parámetro de ángulo en radianes np.pi / 180 = 1 grado
+        # threshold: Número mínimo de intersecciones en el espacio de parámetros para considerar una línea.
+        # minLineLength: Longitud mínima de la línea que se detectará.
+        # maxLineGap: Distancia máxima entre segmentos de línea que aún se considerarán parte de la misma línea.
         lines = cv2.HoughLinesP(image, rho=1, theta=np.pi / 180, threshold=50, minLineLength=50, maxLineGap=40)
         return lines
 
@@ -250,72 +255,73 @@ def count_Clusters(n, labels):
     return cont
 
 
-images_info = load_tagged_images('../manual_sequence/sec3/')
-# images_info = load_tagged_images('../parking_sequence/')
-images_info.sort(key=lambda x: x.time, reverse=False)
+if __name__ == "__main__":
+    images_info = load_tagged_images('../manual_sequence/sec3/')
+    # images_info = load_tagged_images('../parking_sequence/')
+    images_info.sort(key=lambda x: x.time, reverse=False)
 
-cv2.namedWindow("Images", cv2.WINDOW_NORMAL)
-for i in range(0):  # Repeat 1 time
-    for idx in range(len(images_info)):
-        image = cv2.imread(images_info[idx].image_path, cv2.IMREAD_COLOR)
-        cv2.imshow("Images", image)
-        cv2.waitKey(100)
-cv2.destroyAllWindows()
+    cv2.namedWindow("Images", cv2.WINDOW_NORMAL)
+    for i in range(0):  # Repeat 1 time
+        for idx in range(len(images_info)):
+            image = cv2.imread(images_info[idx].image_path, cv2.IMREAD_COLOR)
+            cv2.imshow("Images", image)
+            cv2.waitKey(100)
+    cv2.destroyAllWindows()
 
-cv2.namedWindow("Centroids", cv2.WINDOW_NORMAL)
-for i in range(1):  # Repeat 1 time
-    for idx in range(len(images_info)):
-        image = cv2.imread(images_info[idx].image_path, cv2.IMREAD_COLOR)
+    cv2.namedWindow("Centroids", cv2.WINDOW_NORMAL)
+    for i in range(1):  # Repeat 1 time
+        for idx in range(len(images_info)):
+            image = cv2.imread(images_info[idx].image_path, cv2.IMREAD_COLOR)
 
-        imageGray = cv2.imread(images_info[idx].image_path, cv2.IMREAD_GRAYSCALE)
+            imageGray = cv2.imread(images_info[idx].image_path, cv2.IMREAD_GRAYSCALE)
 
-        image_processing = ImageProcessing(imageGray)  # Instantiate the class
+            image_processing = ImageProcessing(imageGray)  # Instantiate the class
 
-        centroids, intersections, labels, IntersectionsInf = image_processing.get_vanishing_points(idx, n_clusters=50, print_intersections=False)
-        
-      
-
-        nInter, _ = intersections.shape
-
-        dt = [('x', 'float'), ('y', float), ('w', float), ('label', 'S5')]
-        interInfo=np.zeros((nInter,), dtype=dt)
-        for i in range(nInter):
-            interInfo[i][0] = intersections[i,0]
-            interInfo[i][1] = intersections[i,1]
-            interInfo[i][2] = intersections[i,2]
-            interInfo[i][3] = "%05d" % labels[i]
-
-        interInfo = np.sort(interInfo, order='label')
-        print (interInfo)
-        
-                                                                          
-        print(centroids.shape, intersections.shape, labels.shape)
-        clustersSize = count_Clusters(len(centroids), labels)
-
-        idxMax = np.argmax(clustersSize)
+            centroids, intersections, labels, IntersectionsInf = image_processing.get_vanishing_points(idx, n_clusters=50, print_intersections=False)
 
 
 
-        cv2.drawMarker(image, (int(centroids[idxMax, 0]), int(centroids[idxMax][1])), color=(0, 0, 0),
-                       markerType=cv2.MARKER_TILTED_CROSS, markerSize=60, thickness=8)
+            nInter, _ = intersections.shape
 
-        print(clustersSize[idxMax])
+            dt = [('x', 'float'), ('y', float), ('w', float), ('label', 'S5')]
+            interInfo=np.zeros((nInter,), dtype=dt)
+            for i in range(nInter):
+                interInfo[i][0] = intersections[i,0]
+                interInfo[i][1] = intersections[i,1]
+                interInfo[i][2] = intersections[i,2]
+                interInfo[i][3] = "%05d" % labels[i]
 
-        fig1 = plt.figure(1)
-        ax = fig1.add_subplot(111)
-        ax.plot(IntersectionsInf[:,0],IntersectionsInf[:,1], '.')
+            interInfo = np.sort(interInfo, order='label')
+            print (interInfo)
+
+
+            print(centroids.shape, intersections.shape, labels.shape)
+            clustersSize = count_Clusters(len(centroids), labels)
+
+            idxMax = np.argmax(clustersSize)
 
 
 
-        image_with_centroids = draw_centroids_in_image(centroids, intersections, labels, image.copy())
+            cv2.drawMarker(image, (int(centroids[idxMax, 0]), int(centroids[idxMax][1])), color=(0, 0, 0),
+                           markerType=cv2.MARKER_TILTED_CROSS, markerSize=60, thickness=8)
 
-        cv2.imshow("Centroids", image_with_centroids)
-        
-        key = cv2.waitKeyEx  (0)
-        print ("key = ",(key, int(key)))
-        if chr(key) == 'a':
-            plt.show()
-        if key == 27:
-            break
+            print(clustersSize[idxMax])
 
-cv2.destroyAllWindows()
+            fig1 = plt.figure(1)
+            ax = fig1.add_subplot(111)
+            ax.plot(IntersectionsInf[:,0],IntersectionsInf[:,1], '.')
+
+
+
+            image_with_centroids = draw_centroids_in_image(centroids, intersections, labels, image.copy())
+
+            cv2.imshow("Centroids", image_with_centroids)
+
+            key = cv2.waitKeyEx  (0)
+            print ("key = ",(key, int(key)))
+            if chr(key) == 'a':
+                plt.show()
+            if key == 27:
+                break
+
+    cv2.destroyAllWindows()
