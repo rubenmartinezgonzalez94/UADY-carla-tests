@@ -3,6 +3,7 @@
 
 import os
 import cv2
+import pickle 
 import numpy as np
 import matplotlib.pyplot as plt
 import numpy.linalg as la
@@ -33,30 +34,28 @@ class ImageInfo:
 
         return distances, angles, time
 
+class linesIntersections:
+   def __init__(self, lInf, inter, interIdx, interInf, interInfIdx, img):
+      self.linesInfo = lInf
+      self.intersections = inter
+      self.intLinesIdx = interIdx
+      self.intersectionsInf = interInf
+      self.intLineInfIdx = interInfIdx,
+      self.image = img
 
 class ImageProcessing:
     def __init__(self, image):
         self.image = image
 
-    def get_vanishing_points(self, n=0, n_clusters=1, print_intersections=False):
+    def getIntersections(self):
         bottom_half = self.cut_below_horizon(self.image)
         binary_gray_image = self.treshold_image(bottom_half)
         edges = self.canny_coutours(binary_gray_image)
         lines = self.get_hough_lines(edges)
-        lineEqs = self.get_null_space_from_lines(lines)
-        intersections, intLines, IntersectionsInf, intLineInf = self.get_intersection(lines, lineEqs)
-        print("IntersectionsInf:",IntersectionsInf)
-
-        # fileName="Intersecciones_%05d" % n
-        # np.savez(fileName, lines=lines, lineEqs=lineEqs, intersections=intersections, intLines=intLines)
-
-        centroids, labels = self.find_intersection_centroids(intersections, n_clusters)
-
-        if print_intersections:
-            self.print_intersections(intersections, intLines, lines, lineEqs)
-        # self.draw_centroids(centroids, intersections)
-        # self.draw_centroids_in_image(centroids, intersections, self.image)
-        return centroids, intersections, labels, IntersectionsInf
+        linesInfo = self.getLinesInfo(lines)
+        intersections, intLinesIdx, IntersectionsInf, intLineInfIdx = self.computeIntersections(linesInfo)
+        L = linesIntersections(linesInfo, intersections, intLinesIdx, IntersectionsInf, intLineInfIdx, self.image)
+        return L
 
     def cut_below_horizon(self, image):
         height, width = image.shape
@@ -82,14 +81,16 @@ class ImageProcessing:
         lines = cv2.HoughLinesP(image, rho=1, theta=np.pi / 180, threshold=50, minLineLength=50, maxLineGap=40)
         return lines
 
-    def get_null_space_from_lines(self, lines):
-        lineEqs = np.zeros((len(lines), 3))
+    def getLinesInfo(self, lines):
+        linesInfo = np.zeros((len(lines), 8))
         if lines is not None:
             for i, line in enumerate(lines):
                 x1, y1, x2, y2 = line[0]
                 M = np.array([[x1, y1, 1], [x2, y2, 1]])
-                lineEqs[i, :] = self.null_space(M)[:, 0]
-        return lineEqs
+                linesInfo[i, :3] = self.null_space(M)[:, 0]
+                linesInfo[i, 3] = np.sqrt((x1-x2)**2+(y1-y2)**2)
+                linesInfo[i, 4:] =x1, y1, x2, y2
+        return linesInfo
 
     @staticmethod
     def null_space(A, rcond=None):
@@ -112,29 +113,29 @@ class ImageProcessing:
             val = max(np.abs([a, b]))
         return -np.log10(val) > ord
 
-    def get_intersection(self, lines, lineEqs):
-        nLines = len(lines)
+    def computeIntersections(self, linesInfo):
+        nLines = len(linesInfo)
         nComb = ((nLines * (nLines - 1)) // 2)
         pn =  np.zeros((nComb, 3)) #Aqui almacenamos las lineas que no estan en el infinito
         pInf = np.zeros((nComb, 3)) #Aqui almacenamos las lineas que si estan en el infinito
-        intLines = np.zeros((nComb, 2), dtype='int32')
-        intLinesInf = np.zeros((nComb, 2), dtype='int32')
+        intLinesIdx = np.zeros((nComb, 2), dtype='int32')
+        intLinesInfIdx = np.zeros((nComb, 2), dtype='int32')
         idx  = 0
         idxInf = 0
         for i in range(nLines - 1):
             for j in range(i + 1, nLines):
-                homoP = np.cross(lineEqs[i, :], lineEqs[j, :])
+                homoP = np.cross(linesInfo[i, :3], linesInfo[j, :3])
                 if not self.areEqual(homoP[2], 0., 8):
                     homoP /= homoP[2]
                     pn[idx, :] = homoP
-                    intLines[idx, :] = [i, j]
+                    intLinesIdx[idx, :] = [i, j]
                     idx += 1
                 else:
                     pInf[idxInf, :] = homoP
-                    intLinesInf[idx, :] = [i, j]
+                    intLinesInfIdx[idxInf, :] = [i, j]
                     idxInf += 1
 
-        return pn[:idx, :], intLines[:idx, :], pInf[:idxInf, :], intLinesInf[:idxInf, :]
+        return pn[:idx, :], intLinesIdx[:idx, :], pInf[:idxInf, :], intLinesInfIdx[:idxInf, :]
 
     def find_intersection_centroids(self, intersections, n_clusters):
         kmeans = KMeans(n_clusters=n_clusters, n_init=10)
@@ -268,7 +269,8 @@ if __name__ == "__main__":
             cv2.waitKey(100)
     cv2.destroyAllWindows()
 
-    cv2.namedWindow("Centroids", cv2.WINDOW_NORMAL)
+    cv2.namedWindow("Lines", cv2.WINDOW_NORMAL)
+    intersecciones=[]
     for i in range(1):  # Repeat 1 time
         for idx in range(len(images_info)):
             image = cv2.imread(images_info[idx].image_path, cv2.IMREAD_COLOR)
@@ -277,61 +279,12 @@ if __name__ == "__main__":
 
             image_processing = ImageProcessing(imageGray)  # Instantiate the class
 
-            centroids, intersections, labels, IntersectionsInf = image_processing.get_vanishing_points(idx, n_clusters=50, print_intersections=False)
+            intersectionsInfo= image_processing.getIntersections()
+            print ("lines found: ", intersectionsInfo.linesInfo.shape)
+            print ("intersections found: ", intersectionsInfo.intersections.shape)
+            print ("intersections Infinity found: ", intersectionsInfo.intersectionsInf.shape)
+            print ("-"*80, "\n")
 
 
-
-            nInter, _ = intersections.shape
-
-            dt = [('x', 'float'), ('y', float), ('w', float), ('label', 'S5')]
-
-            
-            interInfo=np.zeros((nInter,), dtype=dt)
-            for i in range(nInter):
-                interInfo[i][0] = intersections[i,0]
-                interInfo[i][1] = intersections[i,1]
-                interInfo[i][2] = intersections[i,2]
-                interInfo[i][3] = "%05d" % labels[i]
-
-            interInfo = np.sort(interInfo, order='label')
-
-            print (interInfo)
-
-            print(centroids.shape, intersections.shape, labels.shape)
-            clustersSize = count_Clusters(len(centroids), labels)
-
-            idxMax = np.argmax(clustersSize)
-
-
-
-            cv2.drawMarker(image, (int(centroids[idxMax, 0]), int(centroids[idxMax][1])), color=(0, 0, 0),
-                           markerType=cv2.MARKER_TILTED_CROSS, markerSize=60, thickness=8)
-
-            print(clustersSize[idxMax])
-
-            fig1 = plt.figure(1)
-            ax = fig1.add_subplot(111)
-            ax.plot(IntersectionsInf[:,0],IntersectionsInf[:,1], '.')
-
-
-
-            image_with_centroids = draw_centroids_in_image(centroids, intersections, labels, image.copy())
-
-            cv2.imshow("Centroids", image_with_centroids)
-
-            key = cv2.waitKeyEx  (0)
-            print ("key = ",(key, int(key)))
-            if chr(key) == 'a':
-                plt.show()
-            if key == 27:
-                break
-#
-# #Como leerlo
-# with open('Intersecciones.pkl', 'rb') as f:
-#    inter=pickle.load(f)
-# f.close()
-#
-# probar aglomerative clustering: https://scikit-learn.org/stable/modules/generated/sklearn.cluster.AgglomerativeClustering.html#sklearn.cluster.AgglomerativeClustering
-#
 
     cv2.destroyAllWindows()
