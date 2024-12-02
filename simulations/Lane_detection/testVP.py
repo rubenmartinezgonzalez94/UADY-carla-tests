@@ -127,22 +127,33 @@ def drawLine(img, L, color=(0,0,0), width=1):
     x1, y1, x2, y2 = int(L[4]), int(L[5]), int(L[6]), int(L[7])
     cv2.line(img, (x1, y1), (x2, y2), color, width)
 
-def drawWholeLine(img, L, color, widht):
+def drawWholeLine(img, L, color, width):
    r, c, _ = img.shape
 
    linEq = L[:3].copy()
-   linLeft   = np.array([1, 0,   0])
-   linRight  = np.array([1, 0, 1-c])
-   linTop    = np.array([0, 1, 0])
-   linBottom = np.array([0, 1, 1-r])
-   intL = np.cross(linEq, linLeft)
-   intL = intL / intL[3]
-   intL = np.cross(linEq, linRight)
-   intR = intR / intR[3]
-   intT = np.cross(linEq, linTop)
-   intT = intT / intT[3]
-   intB = np.cross(linEq, linBottom)
-   intB = intB / intB[3]
+   imgBounds = np.zeros((4,3))
+   imgBounds[0, :] = np.array([1, 0,   0]) #Left
+   imgBounds[1, :] = np.array([1, 0, 1-c]) #Right
+   imgBounds[2, :] = np.array([0, 1,   0]) #Top
+   imgBounds[3, :] = np.array([0, 1, 1-r]) #Bottom
+
+   intrSects = np.zeros((4,3))
+   inBounds = [False] * 4
+   for i in range(4):
+      intrSects[i, :] = np.cross(linEq, imgBounds[i, :])
+      intrSects[i, :] = intrSects[i, :] / intrSects[i, 2]
+      if intrSects[i, 0] >= 0 and intrSects[i, 0] < c and intrSects[i, 1] >= 0 and intrSects[i, 1] < r:
+         inBounds[i] = True
+         
+   X=[]
+   Y=[]
+   for i in range(4):
+      if inBounds[i]:
+         x, y = intrSects[i, :2]
+         X.append(int(x))
+         Y.append(int(y))
+   
+   cv2.line(img, (X[0], Y[0]), (X[1], Y[1]), color, width) 
 
 def exploreIntersections(image, winName, intInfo):
    flag = True
@@ -166,7 +177,11 @@ def exploreIntersections(image, winName, intInfo):
       l2 *= 100
       print("L1 = %6.3fx+%6.3fy+%6.3fx=0" % (l1[0], l1[1], l1[2]))
       print("L2 = %6.3fx+%6.3fy+%6.3fx=0\n" % (l2[0], l2[1], l2[2]))
-            
+      drawWholeLine(img, intInfo.linesInfo[i], (255,0,255), 1)
+
+      drawWholeLine(img, intInfo.linesInfo[j], (255,0,255), 1)
+
+
       x, y = intInfo.intersections[idx,:2]
       x, y = int(x), int(y)
       cv2.circle(img, (x, y), radius=10, color=(255, 255, 255), thickness=-1)
@@ -181,26 +196,73 @@ def exploreIntersections(image, winName, intInfo):
          elif  chr(val)=='d' and idx + 1 < intInfo.nIntersections:
             idx += 1
 
-def compute_VP(inter):
+def keyTupleCluster(c):
+   return c[1]
+
+def compute_VP(inter, dThresh=1, minSize=2, weightLines = True):
+
+   # Construimos los clusters de intersecciones similares
    data=inter.intersections[:,:2]
-   AG = AgglomerativeClustering(distance_threshold=0.5, n_clusters=None, compute_full_tree=True).fit(data)
+
+   AG = AgglomerativeClustering(distance_threshold = dThresh, n_clusters=None, compute_full_tree=True).fit(data)
    nLabels = max(AG.labels_)
    print ("leaves       = ", AG.n_leaves_)
    print ("num Features = ", AG.n_features_in_) 
    print("labels        = ", nLabels)
   
+
+   # Obtenemos las listas de intersecciones en cáda cúmulo encontrado y
+   # ordenamos dichas listas en terminos de su tamaño, las más grandes primero.
    clusters=[]
    for i in range(nLabels):
       leaves = [j for j in range(nLabels) if AG.labels_[j]==i]
       clusters.append(leaves)
-   clustersSize = [len(j) for j in clusters]
-   print("clusters:", clusters)
-   print("clustersSize:", clustersSize)
-   C=clustersSize.copy()
-   C.sort()
-   print("clustersSize Ordenado:",C)
-   print(max(clustersSize))
-   print([k for k in range(len(clustersSize)) if clustersSize[k]==3])
+   clustersSize = [(j,len(clusters[j])) for j in range(len(clusters))]
+   clustersSize.sort(key=keyTupleCluster, reverse=True)
+   
+   
+   #Extraemos los indices que cluster cuyo tamaño sea mayor que minSize
+   potVPIndex=[clustersSize[k][0] for k in range(len(clustersSize)) if clustersSize[k][1] >= minSize]
+   
+   VP=[]
+   for i in potVPIndex:
+
+      # Para Cada cumulo, extraemos los índices de las lineas involucradas
+      # en las intersecciones.
+      linesIdx = set()
+      for j in clusters[i]:
+         for k in inter.intLinesIdx[j].tolist():
+            linesIdx.add(k)
+      nLines = len(linesIdx)
+
+      #Calculamos los pesos de cada linea en función de su longitud
+      if weightLines == True:
+         w = np.zeros((nLines))      
+         k = 0
+         for j in linesIdx:
+            w[k] = inter.linesInfo[j, 3]
+            k += 1
+         sW = sum(w)
+      else:
+         w = np.ones((nLines))
+      
+      #Calculamos la matriz acumuladora de productos exteriores
+      M = np.zeros((3,3))
+      k = 0
+      for j in linesIdx:
+         w[k] /= nLines
+         M += w[k] * np.outer(inter.linesInfo[j, :3], inter.linesInfo[j, :3])
+         k += 1
+
+      # Definimos el Punto de Fuga como el eigenvector asociado al eigenvalor
+      # menor de la matriz acumuladora de productos exteriores.
+      [l,V]=np.linalg.eig(M)
+      mn = min(l)
+      idxMin = l.tolist().index(mn)
+      V[:,idxMin] /= V[2,idxMin]
+      VP.append(V[:,idxMin])
+
+   print("VP's = ", VP)
 #--------------------------------------------------------------------
 
 showVideo = False
@@ -236,7 +298,7 @@ if __name__ == "__main__":
       print ("-"*80, "\n")
 
       exploreIntersections(image, "Lineas", intersectionsInfo)
-      compute_VP(intersectionsInfo)
+      compute_VP(intersectionsInfo,dThresh=1,minSize=2)
       val = cv2.waitKey()
       if val == 27:
          break
