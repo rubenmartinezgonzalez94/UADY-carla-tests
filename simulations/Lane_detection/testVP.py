@@ -7,6 +7,7 @@ import pickle
 import numpy as np
 import matplotlib.pyplot as plt
 import numpy.linalg as la
+from sklearn.cluster import AgglomerativeClustering
 
 class ImageInfo:
    def __init__(self, image_path):
@@ -126,6 +127,23 @@ def drawLine(img, L, color=(0,0,0), width=1):
     x1, y1, x2, y2 = int(L[4]), int(L[5]), int(L[6]), int(L[7])
     cv2.line(img, (x1, y1), (x2, y2), color, width)
 
+def drawWholeLine(img, L, color, widht):
+   r, c, _ = img.shape
+
+   linEq = L[:3].copy()
+   linLeft   = np.array([1, 0,   0])
+   linRight  = np.array([1, 0, 1-c])
+   linTop    = np.array([0, 1, 0])
+   linBottom = np.array([0, 1, 1-r])
+   intL = np.cross(linEq, linLeft)
+   intL = intL / intL[3]
+   intL = np.cross(linEq, linRight)
+   intR = intR / intR[3]
+   intT = np.cross(linEq, linTop)
+   intT = intT / intT[3]
+   intB = np.cross(linEq, linBottom)
+   intB = intB / intB[3]
+
 def exploreIntersections(image, winName, intInfo):
    flag = True
    idx = 0
@@ -163,7 +181,26 @@ def exploreIntersections(image, winName, intInfo):
          elif  chr(val)=='d' and idx + 1 < intInfo.nIntersections:
             idx += 1
 
-
+def compute_VP(inter):
+   data=inter.intersections[:,:2]
+   AG = AgglomerativeClustering(distance_threshold=0.5, n_clusters=None, compute_full_tree=True).fit(data)
+   nLabels = max(AG.labels_)
+   print ("leaves       = ", AG.n_leaves_)
+   print ("num Features = ", AG.n_features_in_) 
+   print("labels        = ", nLabels)
+  
+   clusters=[]
+   for i in range(nLabels):
+      leaves = [j for j in range(nLabels) if AG.labels_[j]==i]
+      clusters.append(leaves)
+   clustersSize = [len(j) for j in clusters]
+   print("clusters:", clusters)
+   print("clustersSize:", clustersSize)
+   C=clustersSize.copy()
+   C.sort()
+   print("clustersSize Ordenado:",C)
+   print(max(clustersSize))
+   print([k for k in range(len(clustersSize)) if clustersSize[k]==3])
 #--------------------------------------------------------------------
 
 showVideo = False
@@ -186,19 +223,20 @@ if __name__ == "__main__":
       cv2.destroyWindow("Imagenes")
 
 #---------
+
    cv2.namedWindow("Lineas", cv2.WINDOW_NORMAL)
    
    for idx in range(len(images_info)):
       image = cv2.imread(images_info[idx].image_path, cv2.IMREAD_COLOR)
 
-      intersectionsInfo= getIntersections(image)
+      intersectionsInfo = getIntersections(image)
       print ("lines found: ", intersectionsInfo.nLines)
       print ("intersections found: ", intersectionsInfo.nIntersections)
       print ("intersections Infinity found: ", intersectionsInfo.nIntersectionsInf)
       print ("-"*80, "\n")
 
       exploreIntersections(image, "Lineas", intersectionsInfo)
-
+      compute_VP(intersectionsInfo)
       val = cv2.waitKey()
       if val == 27:
          break
