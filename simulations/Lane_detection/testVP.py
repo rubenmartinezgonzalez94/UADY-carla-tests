@@ -42,6 +42,52 @@ class linesIntersections:
       self.nIntersections, _ = self.intersections.shape
       self.nIntersectionsInf, _ = self.intersectionsInf.shape
 
+class vanishingPoint:
+   def __init__(self, x, y, linesIdx, lines):
+      self.x, self.y = x, y
+      self.linesIdex = linesIdx
+      self.lines = lines
+      self.w=[]
+
+      #Calculamos los pesos de cada linea en función de su longitud
+      for l in lines[:]:
+         self.w.append(l[3])
+      sw = sum(self.w)
+      for i in range(len(self.w)):
+         self.w[i] /= sw
+
+      # Calculamos la matriz de productos externos ponderados.
+      M=np.zeros((3,3))
+      i=0
+      for l in self.lines:
+         M += self.w[i] * np.outer(l[:3],l[:3])
+         i += 1
+
+      # Definimos el Punto de Fuga como el eigenvector asociado al eigenvalor
+      # menor de la matriz acumuladora de productos exteriores.
+      [l,V]=np.linalg.eig(M)
+      mn = min(l)
+      idxMin = l.tolist().index(mn)
+      V[:,idxMin] /= V[2,idxMin]
+      self.x = V[0, idxMin]
+      self.y = V[1, idxMin]
+
+   def __repr__(self):
+      s = "VP=(%06.3f, %06.3f)\n" % (int(self.x), int(self.y))
+      i = 0
+      for l in self.lines[:]:
+         s += "w=%f, line: %fx+%fy+%f=0\n" % (self.w[i], l[0], l[1], l[2])
+         i += 1
+      return s
+   def __str__(self):
+      s = "VP=(%f, %06.3f)\n" % (int(self.x), int(self.y))
+      i = 0
+      for l in self.lines[:]:
+         s += "w=%f, line: %fx+%fy+%f=0\n" % (self.w[i], l[0], l[1], l[2])
+         i += 1
+      return s
+
+
 def loadTaggedImages(directory):
    images = []
    for filename in os.listdir(directory):
@@ -196,6 +242,23 @@ def exploreIntersections(image, winName, intInfo):
          elif  chr(val)=='d' and idx + 1 < intInfo.nIntersections:
             idx += 1
 
+def exploreVP(image, winName, VP):
+   flag = True
+   idx = 0
+   while flag == True:
+      img = image.copy()
+
+      for v in VP:
+         for L in v.lines:
+            drawWholeLine(img, L, (0, 255, 0), 1)
+         cv2.circle(img, (int(v.x), int(v.y)), radius=3 , color=(255, 0, 255), thickness=-1)
+            
+      cv2.imshow(winName, img)
+      val = cv2.waitKey(0)
+      if val == 27:
+      
+         flag = False
+      
 def keyTupleCluster(c):
    return c[1]
 
@@ -222,6 +285,7 @@ def compute_VP(inter, dThresh=1, minSize=2, weightLines = True):
    
    
    #Extraemos los indices que cluster cuyo tamaño sea mayor que minSize
+   #potVPIndex -> Indice de Vanishing Points Potenciales.
    potVPIndex=[clustersSize[k][0] for k in range(len(clustersSize)) if clustersSize[k][1] >= minSize]
    
    VP=[]
@@ -235,34 +299,12 @@ def compute_VP(inter, dThresh=1, minSize=2, weightLines = True):
             linesIdx.add(k)
       nLines = len(linesIdx)
 
-      #Calculamos los pesos de cada linea en función de su longitud
-      if weightLines == True:
-         w = np.zeros((nLines))      
-         k = 0
-         for j in linesIdx:
-            w[k] = inter.linesInfo[j, 3]
-            k += 1
-         sW = sum(w)
-      else:
-         w = np.ones((nLines))
-      
-      #Calculamos la matriz acumuladora de productos exteriores
-      M = np.zeros((3,3))
-      k = 0
-      for j in linesIdx:
-         w[k] /= nLines
-         M += w[k] * np.outer(inter.linesInfo[j, :3], inter.linesInfo[j, :3])
-         k += 1
+      vp = vanishingPoint(None, None, list(linesIdx), inter.linesInfo[list(linesIdx),:])
+   
+      VP.append(vp)
 
-      # Definimos el Punto de Fuga como el eigenvector asociado al eigenvalor
-      # menor de la matriz acumuladora de productos exteriores.
-      [l,V]=np.linalg.eig(M)
-      mn = min(l)
-      idxMin = l.tolist().index(mn)
-      V[:,idxMin] /= V[2,idxMin]
-      VP.append(V[:,idxMin])
-
-   print("VP's = ", VP)
+   return VP   
+   
 #--------------------------------------------------------------------
 
 showVideo = False
@@ -298,7 +340,12 @@ if __name__ == "__main__":
       print ("-"*80, "\n")
 
       exploreIntersections(image, "Lineas", intersectionsInfo)
-      compute_VP(intersectionsInfo,dThresh=1,minSize=2)
+      
+      VP = compute_VP(intersectionsInfo,dThresh=0.5,minSize=3)
+      print("VP's = ", VP)
+
+      exploreVP (image, "Lineas", VP)
+
       val = cv2.waitKey()
       if val == 27:
          break
