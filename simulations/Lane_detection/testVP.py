@@ -169,6 +169,26 @@ def getIntersections(image, threshold=210):
    L = linesIntersections(linesInfo, intersections, intLinesIdx, IntersectionsInf, intLineInfIdx, image)
    return L
 
+def testLines(LI):
+   L = LI.linesInfo.copy()
+   n = LI.nLines
+   angs=[]
+   for i in range(n-1):
+      for j in range(i+1, n):
+         a = L[i,:3]
+         b = L[j,:3]
+         a = a / la.norm(a)
+         b = b / la.norm(b)
+         err2 = (np.dot(L[i,:3], np.hstack([L[j, 5:7], 1]))**2+np.dot(L[j,:3],  np.hstack([L[j, 5:7], 1]))**2)/2
+         if err2 < 0.5:
+            print(a)
+            print(b)
+            print(err2)
+            print("*"*80,"\n")
+            angs.append((i,j,err2))
+   print(len(angs))
+   return angs
+
 def drawLine(img, L, color=(0,0,0), width=1):
     x1, y1, x2, y2 = int(L[4]), int(L[5]), int(L[6]), int(L[7])
     cv2.line(img, (x1, y1), (x2, y2), color, width)
@@ -334,6 +354,8 @@ if __name__ == "__main__":
       image = cv2.imread(images_info[idx].image_path, cv2.IMREAD_COLOR)
 
       intersectionsInfo = getIntersections(image)
+      Angs = testLines(intersectionsInfo)
+
       print ("lines found: ", intersectionsInfo.nLines)
       print ("intersections found: ", intersectionsInfo.nIntersections)
       print ("intersections Infinity found: ", intersectionsInfo.nIntersectionsInf)
