@@ -169,25 +169,56 @@ def getIntersections(image, threshold=210):
    L = linesIntersections(linesInfo, intersections, intLinesIdx, IntersectionsInf, intLineInfIdx, image)
    return L
 
-def testLines(LI):
+def getSimilarLines(LI, threshold = 0.5):
    L = LI.linesInfo.copy()
    n = LI.nLines
-   angs=[]
+   simil=[]
+   errmin=1000000000;
    for i in range(n-1):
+      a = L[i,:3]
+      a = a / la.norm(a)
+      denA=1/np.sqrt(L[i,0]**2+L[i,1]**2)
       for j in range(i+1, n):
-         a = L[i,:3]
          b = L[j,:3]
-         a = a / la.norm(a)
          b = b / la.norm(b)
-         err2 = (np.dot(L[i,:3], np.hstack([L[j, 5:7], 1]))**2+np.dot(L[j,:3],  np.hstack([L[j, 5:7], 1]))**2)/2
-         if err2 < 0.5:
-            print(a)
-            print(b)
-            print(err2)
-            print("*"*80,"\n")
-            angs.append((i,j,err2))
-   print(len(angs))
-   return angs
+         err1=np.sqrt(np.dot(L[i,:3], np.hstack([L[j, 4:6], 1]))**2)*denA
+         err2=np.sqrt(np.dot(L[i,:3], np.hstack([L[j, 6:], 1]))**2)*denA
+         denB=1/np.sqrt(L[j,0]**2+L[j,1]**2)
+         err3=np.sqrt(np.dot(L[j,:3], np.hstack([L[i, 4:6], 1]))**2)*denB
+         err4=np.sqrt(np.dot(L[j,:3], np.hstack([L[i, 6:], 1]))**2)*denB     
+         err = max([err1, err2, err3, err4])
+         if err < errmin:
+            errmin = err
+         if threshold == 0 or err < threshold:
+            simil.append((i,j,err))
+   print(len(simil))
+   print("errmin = ", errmin)
+   return simil
+
+def drawSimilarLines(image, LI, thr = 1):
+   winName = "Similar Lines"
+   cv2.namedWindow(winName, cv2.WINDOW_NORMAL)
+   flag = True
+   idx = 0
+   img = image.copy()
+   while flag == True:
+      S = getSimilarLines(LI, thr)
+      for s in S:
+        
+         print ("s=", s)
+         print ("Linea[%d] = " % s[0], LI.linesInfo[s[0],:])
+         print ("Linea[%d] = " % s[1], LI.linesInfo[s[1],:])
+         print("+"*80,"\n")
+         drawWholeLine(img, LI.linesInfo[s[0],:], (255,0,128), 1)
+         drawWholeLine(img, LI.linesInfo[s[1],:], (255,0,128), 1)
+         drawLine(img, LI.linesInfo[s[0]], color=(64,0,192), width=2)
+         drawLine(img, LI.linesInfo[s[1]], color=(64,0,192), width=2)
+      cv2.imshow(winName, img)
+      val = cv2.waitKey(0)
+      if val == 27:
+         flag=False
+   cv2.destroyWindow(winName)
+
 
 def drawLine(img, L, color=(0,0,0), width=1):
     x1, y1, x2, y2 = int(L[4]), int(L[5]), int(L[6]), int(L[7])
@@ -354,7 +385,7 @@ if __name__ == "__main__":
       image = cv2.imread(images_info[idx].image_path, cv2.IMREAD_COLOR)
 
       intersectionsInfo = getIntersections(image)
-      Angs = testLines(intersectionsInfo)
+      drawSimilarLines(image, intersectionsInfo, 2)
 
       print ("lines found: ", intersectionsInfo.nLines)
       print ("intersections found: ", intersectionsInfo.nIntersections)
