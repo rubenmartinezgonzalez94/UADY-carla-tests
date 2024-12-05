@@ -125,14 +125,17 @@ def cut_below_horizon(image):
    return bottom_half
 
 def getLinesInfo(lines):
-   linesInfo = np.zeros((len(lines), 8))
+   linesInfo = np.zeros((len(lines), 9))
    if lines is not None:
       for i, line in enumerate(lines):
          x1, y1, x2, y2 = line[0]
          M = np.array([[x1, y1, 1], [x2, y2, 1]])
-         linesInfo[i, :3] = null_space(M)[:, 0]
-         linesInfo[i, 3] = np.sqrt((x1-x2)**2+(y1-y2)**2)
-         linesInfo[i, 4:] =x1, y1, x2, y2
+         linesInfo[i, :3] = null_space(M)[:, 0] #Line Equation.
+         linesInfo[i, 3] = np.sqrt((x1 - x2)**2 + (y1 - y2)**2) # Line segment lenght.
+         linesInfo[i, 4] = np.arctan2(y1- y2, x1 - x2) # Line segment angle.
+         linesInfo[i, 5:] =x1, y1, x2, y2 # Coordinate that bound the line segment.
+   # Sort the array by lines angle
+   linesInfo=linesInfo[linesInfo[:,4].argsort()]
    return linesInfo
 
 def computeIntersections(linesInfo):
@@ -170,29 +173,31 @@ def getIntersections(image, threshold=210):
    return L
 
 def getSimilarLines(LI, threshold = 0.5):
-   L = LI.linesInfo.copy()
+   LI.linesInfo
    n = LI.nLines
-   simil=[]
-   errmin=1000000000;
+   simil = []
    for i in range(n-1):
-      a = L[i,:3]
+      a = LI.linesInfo[i, :3]
       a = a / la.norm(a)
-      denA=1/np.sqrt(L[i,0]**2+L[i,1]**2)
+      denA = 1 / np.sqrt(LI.linesInfo[i,0]**2 + LI.linesInfo[i,1]**2)
       for j in range(i+1, n):
-         b = L[j,:3]
+         b = LI.linesInfo[j, :3]
          b = b / la.norm(b)
-         err1=np.sqrt(np.dot(L[i,:3], np.hstack([L[j, 4:6], 1]))**2)*denA
-         err2=np.sqrt(np.dot(L[i,:3], np.hstack([L[j, 6:], 1]))**2)*denA
-         denB=1/np.sqrt(L[j,0]**2+L[j,1]**2)
-         err3=np.sqrt(np.dot(L[j,:3], np.hstack([L[i, 4:6], 1]))**2)*denB
-         err4=np.sqrt(np.dot(L[j,:3], np.hstack([L[i, 6:], 1]))**2)*denB     
-         err = max([err1, err2, err3, err4])
-         if err < errmin:
-            errmin = err
-         if threshold == 0 or err < threshold:
-            simil.append((i,j,err))
-   print(len(simil))
-   print("errmin = ", errmin)
+         denB = 1 / np.sqrt(LI.linesInfo[j,0]**2 + LI.linesInfo[j,1]**2)
+   # Compute the distance between the one line into two points layin on the
+   # other line, and viceversa.
+         dist1 = np.sqrt(np.dot(LI.linesInfo[i, :3], np.hstack([LI.linesInfo[j, 5:7], 1]))**2) * denA
+         dist2 = np.sqrt(np.dot(LI.linesInfo[i, :3], np.hstack([LI.linesInfo[j,  7:], 1]))**2) * denA
+         dist3 = np.sqrt(np.dot(LI.linesInfo[j, :3], np.hstack([LI.linesInfo[i, 5:7], 1]))**2) * denB
+         dist4 = np.sqrt(np.dot(LI.linesInfo[j, :3], np.hstack([LI.linesInfo[i,  7:], 1]))**2) * denB     
+   # Selects the maximum distance. If two lines are similiar this distance
+   # should be a small number.
+         dist = max([dist1, dist2, dist3, dist4])
+   # If the maximum distance between two lines is small enough, the indexes
+   # to those lines, together with the distance are added as a tuple to a list.
+         if threshold == 0 or dist < threshold:
+            simil.append((i,j,dist))
+   # The list with similar paired lines is returned.
    return simil
 
 def drawSimilarLines(image, LI, thr = 1):
@@ -210,9 +215,9 @@ def drawSimilarLines(image, LI, thr = 1):
          print ("Linea[%d] = " % s[1], LI.linesInfo[s[1],:])
          print("+"*80,"\n")
          drawWholeLine(img, LI.linesInfo[s[0],:], (255,0,128), 1)
-         drawWholeLine(img, LI.linesInfo[s[1],:], (255,0,128), 1)
-         drawLine(img, LI.linesInfo[s[0]], color=(64,0,192), width=2)
-         drawLine(img, LI.linesInfo[s[1]], color=(64,0,192), width=2)
+         drawWholeLine(img, LI.linesInfo[s[1],:], (255,128,0), 1)
+         drawLine(img, LI.linesInfo[s[0]], color=(64,0,192), width=1)
+         drawLine(img, LI.linesInfo[s[1]], color=(64,192,0), width=1)
       cv2.imshow(winName, img)
       val = cv2.waitKey(0)
       if val == 27:
@@ -221,7 +226,7 @@ def drawSimilarLines(image, LI, thr = 1):
 
 
 def drawLine(img, L, color=(0,0,0), width=1):
-    x1, y1, x2, y2 = int(L[4]), int(L[5]), int(L[6]), int(L[7])
+    x1, y1, x2, y2 = int(L[5]), int(L[6]), int(L[7]), int(L[8])
     cv2.line(img, (x1, y1), (x2, y2), color, width)
 
 def drawWholeLine(img, L, color, width):
@@ -307,7 +312,6 @@ def exploreVP(image, winName, VP):
       cv2.imshow(winName, img)
       val = cv2.waitKey(0)
       if val == 27:
-      
          flag = False
       
 def keyTupleCluster(c):
@@ -385,14 +389,14 @@ if __name__ == "__main__":
       image = cv2.imread(images_info[idx].image_path, cv2.IMREAD_COLOR)
 
       intersectionsInfo = getIntersections(image)
-      drawSimilarLines(image, intersectionsInfo, 2)
+    #  drawSimilarLines(image, intersectionsInfo, 1)
 
       print ("lines found: ", intersectionsInfo.nLines)
       print ("intersections found: ", intersectionsInfo.nIntersections)
       print ("intersections Infinity found: ", intersectionsInfo.nIntersectionsInf)
       print ("-"*80, "\n")
 
-      exploreIntersections(image, "Lineas", intersectionsInfo)
+     # exploreIntersections(image, "Lineas", intersectionsInfo)
       
       VP = compute_VP(intersectionsInfo,dThresh=0.5,minSize=3)
       print("VP's = ", VP)
