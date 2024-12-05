@@ -176,27 +176,36 @@ def getSimilarLines(LI, threshold = 0.5):
    LI.linesInfo
    n = LI.nLines
    simil = []
-   for i in range(n-1):
-      a = LI.linesInfo[i, :3]
-      a = a / la.norm(a)
-      denA = 1 / np.sqrt(LI.linesInfo[i,0]**2 + LI.linesInfo[i,1]**2)
-      for j in range(i+1, n):
+   changes = 1
+   chosen = set()
+   while changes > 0:
+      changes = 0
+      for i in range(n-1):
+         j = i + 1
+         if i in chosen or j in chosen:
+            continue
+         a = LI.linesInfo[i, :3]
+         a = a / la.norm(a)
+         denA = 1 / np.sqrt(LI.linesInfo[i,0]**2 + LI.linesInfo[i,1]**2)
          b = LI.linesInfo[j, :3]
          b = b / la.norm(b)
          denB = 1 / np.sqrt(LI.linesInfo[j,0]**2 + LI.linesInfo[j,1]**2)
-   # Compute the distance between the one line into two points layin on the
-   # other line, and viceversa.
+      # Compute the distance between the one line into two points layin on the
+      # other line, and viceversa.
          dist1 = np.sqrt(np.dot(LI.linesInfo[i, :3], np.hstack([LI.linesInfo[j, 5:7], 1]))**2) * denA
          dist2 = np.sqrt(np.dot(LI.linesInfo[i, :3], np.hstack([LI.linesInfo[j,  7:], 1]))**2) * denA
          dist3 = np.sqrt(np.dot(LI.linesInfo[j, :3], np.hstack([LI.linesInfo[i, 5:7], 1]))**2) * denB
          dist4 = np.sqrt(np.dot(LI.linesInfo[j, :3], np.hstack([LI.linesInfo[i,  7:], 1]))**2) * denB     
-   # Selects the maximum distance. If two lines are similiar this distance
-   # should be a small number.
+      # Selects the maximum distance. If two lines are similiar this distance
+      # should be a small number.
          dist = max([dist1, dist2, dist3, dist4])
-   # If the maximum distance between two lines is small enough, the indexes
-   # to those lines, together with the distance are added as a tuple to a list.
-         if threshold == 0 or dist < threshold:
+      # If the maximum distance between two lines is small enough, the indexes
+      # to those lines, together with the distance are added as a tuple to a list.
+         if dist < threshold:
             simil.append((i,j,dist))
+            chosen.add(i)
+            changes += 1
+      print("getSimilarLines:changes = ", changes)
    # The list with similar paired lines is returned.
    return simil
 
@@ -389,14 +398,14 @@ if __name__ == "__main__":
       image = cv2.imread(images_info[idx].image_path, cv2.IMREAD_COLOR)
 
       intersectionsInfo = getIntersections(image)
-    #  drawSimilarLines(image, intersectionsInfo, 1)
+      drawSimilarLines(image, intersectionsInfo, 2)
 
       print ("lines found: ", intersectionsInfo.nLines)
       print ("intersections found: ", intersectionsInfo.nIntersections)
       print ("intersections Infinity found: ", intersectionsInfo.nIntersectionsInf)
       print ("-"*80, "\n")
 
-     # exploreIntersections(image, "Lineas", intersectionsInfo)
+      exploreIntersections(image, "Lineas", intersectionsInfo)
       
       VP = compute_VP(intersectionsInfo,dThresh=0.5,minSize=3)
       print("VP's = ", VP)
