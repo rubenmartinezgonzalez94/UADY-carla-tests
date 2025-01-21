@@ -96,7 +96,6 @@ def loadTaggedImages(directory):
          images.append(ImageInfo(route))
    return images
 
-@staticmethod
 def null_space(A, rcond=None):
    u, s, vh = la.svd(A, full_matrices=True)
    M, N = u.shape[0], vh.shape[1]
@@ -107,7 +106,6 @@ def null_space(A, rcond=None):
    Q = vh[num:, :].T.conj()
    return Q
 
-@staticmethod
 def areEqual(a, b, ord=7):
    if a == b:
       return True
