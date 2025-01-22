@@ -5,9 +5,6 @@ import numpy as np
 import time
 import math
 import pygame
-
-# sys.path.append('E:/UADY/CARLA/CARLA_Latest/WindowsNoEditor/PythonAPI/carla')
-
 import carla
 
 

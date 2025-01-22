@@ -1,8 +1,9 @@
-import sys
 import time
-
-import cv2
+import sys
+# print(sys.version)
 import numpy as np
+import cv2
+
 
 sys.path.append('../')
 from carla_parking import SimulationParking

@@ -184,7 +184,7 @@ class ImageProcessing:
             x11, y11, x12, y12 = lines[idx1][0]
             x21, y21, x22, y22 = lines[idx2][0]
 
-            angle = self.get_angle_between(lineEqs[idx1, :], lineEqs[idx2, :])
+            angle = get_angle_between(lineEqs[idx1, :], lineEqs[idx2, :])
             cv2.putText(locImage, "Angle: %.2f" % angle, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
             cv2.line(locImage, (x11, y11), (x12, y12), (0, 255, 0), 2)
@@ -277,7 +277,11 @@ if __name__ == "__main__":
 
             image_processing = ImageProcessing(imageGray)  # Instantiate the class
 
-            centroids, intersections, labels, IntersectionsInf = image_processing.get_vanishing_points(idx, n_clusters=50, print_intersections=False)
+            centroids, intersections, labels, IntersectionsInf = image_processing.get_vanishing_points(
+                idx,
+                n_clusters=50,
+                print_intersections=False
+            )
 
 
 
