@@ -15,8 +15,8 @@ class ImageInfo:
         Extracts tags (distances, angles, and time) from the image filename.
         """
         distances = []
-        angles = []
         time = 0.0
+        angles = []
         filename = os.path.basename(image_path)
         filename = filename.split('_')
         for word in filename:
@@ -179,7 +179,7 @@ class ImageProcessor:
         """
         Filters intersections to keep only those near the horizon.
         """
-        horizon_threshold = 50  # Distance in pixels from the horizon line
+        horizon_threshold = 5  # Distance in pixels from the horizon line
         horizon_line = image_height // 2  # Middle of the image (horizon approximation)
         relevant_intersections = []
 
@@ -203,10 +203,11 @@ class ImageProcessor:
 
         # Apply AgglomerativeClustering
         clustering = AgglomerativeClustering(
-            n_clusters=n_clusters,
+            n_clusters=2,
             compute_full_tree=True,
             metric='euclidean',
             linkage='ward'
+            #,distance_threshold=2
         )
         labels = clustering.fit_predict(points)
 
@@ -304,7 +305,7 @@ class ImageProcessor:
                 # Draw cluster centers
                 for center in cluster_centers:
                     cv2.drawMarker(display_image, (int(center[0]), int(center[1])), (255, 255, 255), cv2.MARKER_CROSS,
-                                   10, 2)
+                                   30, 5)
         # Show vanishing points
         if hasattr(self, 'show_vanishing_points') and self.show_vanishing_points:
             print('vanishing points not implemented yet')
