@@ -1,7 +1,11 @@
+#! /usr/bin/env python3
+# coding: UTF-8
+
 import random
 from typing import List, Tuple, Optional, Any
 from sklearn.cluster import AgglomerativeClustering
 import os
+import sys
 import cv2
 import numpy as np
 
@@ -438,13 +442,13 @@ def load_tagged_images(directory: str) -> List[ImageInfo]:
     return images
 
 
-def main():
+def main(sequence='../manual_sequence/sec4/'):
     # Create an instance of ImageProcessor
     hiper_params = HiperParams()
     processor = ImageProcessor(hiper_params)
 
     # Load images from the directory
-    processor.load_images('../manual_sequence/sec4/')
+    processor.load_images(sequence)
 
     # Display the legend
     processor.show_legend()
@@ -453,7 +457,7 @@ def main():
     processor.create_trackbars()
 
     # Create an OpenCV window to capture keys
-    cv2.namedWindow("Image Sequence", cv2.WINDOW_NORMAL)
+    cv2.namedWindow("Image Sequence", cv2.WINDOW_GUI_EXPANDED)
 
     # Main loop to interact with the options
     while True:
@@ -505,4 +509,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv)> 1:
+        main(sys.argv[1])
+    else:
+        main()
