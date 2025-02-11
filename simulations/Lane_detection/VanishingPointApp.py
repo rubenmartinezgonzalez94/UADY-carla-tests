@@ -35,6 +35,7 @@ class ImageInfo:
                 time = float(word[2:])
         return distances, angles, time
 
+
 class HiperParams:
     def __init__(self):
         self.threshold_image = 210
@@ -51,6 +52,8 @@ class HiperParams:
         }
         self.relevant_intersections_horizon_threshold = 5
         self.cluster_n_intersections = 5
+        self.distance_threshold = 0
+
 
 class VanishingPoint:
     def __init__(self, lines: List[np.ndarray], weights: Optional[List[float]] = None):
@@ -74,11 +77,11 @@ class VanishingPoint:
 
 
 class ImageProcessor:
-    def __init__(self,hiper_params: HiperParams):
+    def __init__(self, hiper_params: HiperParams):
         self.hiper_params = hiper_params
         self.images: List[ImageInfo] = []
         self.current_image_index: int = 0
-        self.paused: bool = False
+        self.paused: bool = True
         self.show_contours: bool = False
         self.show_lines: bool = False
         self.show_intersections: bool = False
@@ -86,6 +89,8 @@ class ImageProcessor:
         self.show_relevant_lines: bool = False
         self.show_clusters: bool = False
         self.show_vanishing_points: bool = True
+        self.show_info: bool = False
+        self.errores = []
 
     def load_images(self, directory: str):
         """
@@ -128,14 +133,19 @@ class ImageProcessor:
         intersections = self.compute_intersections(lines, line_eqs)
 
         # Step 7: Filter relevant intersections (near the horizon)
-        relevant_intersections = self.filter_relevant_intersections(intersections, height, self.hiper_params.relevant_intersections_horizon_threshold)
+        relevant_intersections = self.filter_relevant_intersections(intersections, height,
+                                                                    self.hiper_params.relevant_intersections_horizon_threshold)
 
         # Step 8: Filter relevant lines
         relevant_lines = self.filter_relevant_lines(lines, relevant_intersections)
 
         # Step 9: Cluster relevant intersections
         relevant_points = [point for point, _ in relevant_intersections]
-        cluster_labels, cluster_centers = self.cluster_intersections(relevant_points, self.hiper_params.cluster_n_intersections)
+        cluster_labels, cluster_centers = self.cluster_intersections(
+            relevant_points,
+            self.hiper_params.cluster_n_intersections if self.hiper_params.distance_threshold is 0 else None,
+            self.hiper_params.distance_threshold if self.hiper_params.distance_threshold is not 0 else None
+        )
 
         # Step 10: Compute vanishing point for the strongest cluster
         vanishing_points = []
@@ -244,7 +254,8 @@ class ImageProcessor:
     def cluster_intersections(
             self,
             intersections: List[Tuple[int, int]],
-            n_clusters: int = 2
+            n_clusters: int | None = 2,
+            distance_threshold: int | None = None
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Applies AgglomerativeClustering to group intersections into clusters.
@@ -259,6 +270,7 @@ class ImageProcessor:
         # Apply AgglomerativeClustering
         clustering = AgglomerativeClustering(
             n_clusters=n_clusters,
+            distance_threshold=distance_threshold,
             compute_full_tree=True,
             metric='euclidean',
             linkage='ward'
@@ -267,6 +279,8 @@ class ImageProcessor:
         labels = clustering.fit_predict(points)
 
         # Compute cluster centers
+        if n_clusters is None:
+            n_clusters = len(np.unique(labels))
         cluster_centers = []
         for i in range(n_clusters):
             cluster_points = points[labels == i]
@@ -320,6 +334,41 @@ class ImageProcessor:
 
     def update_display(self, image: np.ndarray, processed_data: dict) -> np.ndarray:
         display_image = image.copy()
+        height, width = display_image.shape[:2]
+        center_x, center_y = width // 2, height // 2
+
+        if self.show_info:
+            y_offset = 20
+            threshold_distance = 5
+            # Show vanishing point coordinates
+            for vp in processed_data["vanishing_points"]:
+                text = f"VP: ({int(vp.x)}, {int(vp.y)})"
+                cv2.putText(display_image, text, (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
+                y_offset += 20
+
+                # Check if the VP is near the center of the image
+                distance_to_center = np.sqrt((vp.x - center_x) ** 2 + (vp.y - center_y) ** 2)
+                if distance_to_center < threshold_distance:
+                    text = f"VP ({int(vp.x)}, {int(vp.y)}) is near to the image center"
+                    cv2.putText(display_image, text, (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+                    y_offset += 20
+
+            # Show cluster information ordered by size
+            cluster_labels = processed_data["cluster_labels"]
+            cluster_centers = processed_data["cluster_centers"]
+            cluster_sizes = [(i, np.sum(cluster_labels == i)) for i in range(len(cluster_centers))]
+            cluster_sizes.sort(key=lambda x: x[1], reverse=True)
+            for i, (cluster_id, size) in enumerate(cluster_sizes):
+                center = cluster_centers[cluster_id]
+                text = f"Cluster {i}: {size} points, Center: ({int(center[0])}, {int(center[1])})"
+                cv2.putText(display_image, text, (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+                y_offset += 20
+
+            # Show errors
+            for error in self.errores:
+                cv2.putText(display_image, f"Error: {error}", (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                            (0, 0, 255), 1)
+                y_offset += 20
 
         # Show contours (edges)
         if self.show_contours:
@@ -344,9 +393,16 @@ class ImageProcessor:
 
         # Show relevant lines
         if self.show_relevant_lines:
-            for line in processed_data["relevant_lines"]:
-                x1, y1, x2, y2 = line[0]
-                cv2.line(display_image, (x1, y1), (x2, y2), (255, 0, 255), 2)  # Magenta color for relevant lines
+            # for line in processed_data["relevant_lines"]:
+            #     x1, y1, x2, y2 = line[0]
+            #     cv2.line(display_image, (x1, y1), (x2, y2), (255, 0, 255), 2)  # Magenta color for relevant lines
+            for point, (i, j) in processed_data["relevant_intersections"]:
+                x1, y1, x2, y2 = processed_data["lines"][i][0]
+                x3, y3, x4, y4 = processed_data["lines"][j][0]
+                # Prolongar la línea i
+                cv2.line(display_image, (x1, y1), point, (255, 0, 255), 1)  # Magenta color for relevant lines
+                # Prolongar la línea j
+                cv2.line(display_image, (x3, y3), point, (255, 0, 255), 1)  # Magenta color for relevant lines
 
         # Show clusters
         if self.show_clusters:
@@ -377,21 +433,34 @@ class ImageProcessor:
     def create_trackbars(self):
         cv2.namedWindow("Trackbars", cv2.WINDOW_NORMAL)
         cv2.createButton("Pause", self.toggle_pause, None, cv2.QT_PUSH_BUTTON, 0)
-        cv2.createTrackbar("Threshold Image", "Trackbars", self.hiper_params.threshold_image, 255, self.update_threshold_image)
-        cv2.createTrackbar("Canny Threshold 1", "Trackbars", self.hiper_params.canny_params["threshold_1"], 500, self.update_canny_threshold_1)
-        cv2.createTrackbar("Canny Threshold 2", "Trackbars", self.hiper_params.canny_params["threshold_2"], 500, self.update_canny_threshold_2)
-        cv2.createTrackbar("Hough Threshold", "Trackbars", self.hiper_params.hough_params["threshold"], 200, self.update_hough_threshold)
-        cv2.createTrackbar("Min Line Length", "Trackbars", self.hiper_params.hough_params["min_line_length"], 200, self.update_min_line_length)
-        cv2.createTrackbar("Max Line Gap", "Trackbars", self.hiper_params.hough_params["max_line_gap"], 200, self.update_max_line_gap)
-
-        cv2.createTrackbar("Horizon Threshold", "Trackbars", self.hiper_params.relevant_intersections_horizon_threshold,100, self.update_horizon_threshold)
-        cv2.createTrackbar("Cluster Intersections", "Trackbars", self.hiper_params.cluster_n_intersections, 20,self.update_cluster_intersections)
+        cv2.createTrackbar("Horizon Threshold", "Trackbars", self.hiper_params.relevant_intersections_horizon_threshold,
+                           100, self.update_horizon_threshold)
+        cv2.createTrackbar("Cluster Intersections", "Trackbars", self.hiper_params.cluster_n_intersections, 20,
+                           self.update_cluster_intersections)
+        cv2.createTrackbar("Cluster Distance Threshold", "Trackbars", self.hiper_params.distance_threshold, 500,
+                           self.update_distance_threshold)  # Add Trackbar for distance_thresholdackbar for distance_threshold
+        cv2.createTrackbar("Canny Threshold 1", "Trackbars", self.hiper_params.canny_params["threshold_1"], 500,
+                           self.update_canny_threshold_1)
+        cv2.createTrackbar("Canny Threshold 2", "Trackbars", self.hiper_params.canny_params["threshold_2"], 500,
+                           self.update_canny_threshold_2)
+        cv2.createTrackbar("Hough Threshold", "Trackbars", self.hiper_params.hough_params["threshold"], 200,
+                           self.update_hough_threshold)
+        cv2.createTrackbar("Hough Min Line Length", "Trackbars", self.hiper_params.hough_params["min_line_length"], 200,
+                           self.update_min_line_length)
+        cv2.createTrackbar("Hough Max Line Gap", "Trackbars", self.hiper_params.hough_params["max_line_gap"], 200,
+                           self.update_max_line_gap)
+        cv2.createTrackbar("Threshold Image", "Trackbars", self.hiper_params.threshold_image, 255,
+                           self.update_threshold_image)
 
     def toggle_pause(self, *args):
         self.paused = not self.paused
 
     def update_threshold_image(self, value):
         self.hiper_params.threshold_image = value
+        self.process_and_display_current_image()
+
+    def update_distance_threshold(self, value):
+        self.hiper_params.distance_threshold = value
         self.process_and_display_current_image()
 
     def update_canny_threshold_1(self, value):
@@ -427,8 +496,8 @@ class ImageProcessor:
             image_info = self.images[self.current_image_index]
             image = cv2.imread(image_info.image_path, cv2.IMREAD_COLOR)
             processed_data = self.process_image(image)
-            display_image = self.update_display(image, processed_data)
-            cv2.imshow("Image Sequence", display_image)
+            self.update_display(image, processed_data)
+
 
 def load_tagged_images(directory: str) -> List[ImageInfo]:
     """
@@ -457,10 +526,11 @@ def main(sequence='../manual_sequence/sec4/'):
     processor.create_trackbars()
 
     # Create an OpenCV window to capture keys
-    cv2.namedWindow("Image Sequence", cv2.WINDOW_GUI_EXPANDED)
+    cv2.namedWindow("Image Sequence", cv2.WINDOW_NORMAL)
 
     # Main loop to interact with the options
     while True:
+        # processor.errores = []
         # Get the current image
         image_info = processor.images[processor.current_image_index]
         image = cv2.imread(image_info.image_path, cv2.IMREAD_COLOR)
@@ -469,14 +539,20 @@ def main(sequence='../manual_sequence/sec4/'):
             print(f"Error: Unable to load image {image_info.image_path}.")
             continue
 
-        # Process the image
-        processed_data = processor.process_image(image)
+        try:
+            # Process the image
+            processed_data = processor.process_image(image)
 
-        # Update the display image with the current options
-        display_image = processor.update_display(image, processed_data)
+            # Update the display image with the current options
+            display_image = processor.update_display(image, processed_data)
 
-        # Show the image
-        cv2.imshow("Image Sequence", display_image)
+            # Show the image
+            cv2.imshow("Image Sequence", display_image)
+
+        except Exception as e:
+            print(f"Error processing image {image_info.image_path}: {e}")
+            # processor.errores.append(str(e))
+            processor.paused = True
 
         # Wait for a key press
         key = cv2.waitKey(30) & 0xFF
@@ -484,6 +560,8 @@ def main(sequence='../manual_sequence/sec4/'):
         # Handle key presses
         if key == ord('p'):  # P: Pause/Resume the sequence
             processor.paused = not processor.paused
+        elif key == ord('d'):  # D: Toggle detailed information
+            processor.show_info = not processor.show_info
         elif key == ord('c'):  # C: Toggle contours
             processor.show_contours = not processor.show_contours
         elif key == ord('l'):  # L: Toggle lines
@@ -498,6 +576,10 @@ def main(sequence='../manual_sequence/sec4/'):
             processor.show_clusters = not processor.show_clusters
         elif key == ord('f'):  # F: Toggle vanishing points
             processor.show_vanishing_points = not processor.show_vanishing_points
+        elif key == 81:  # Left arrow key
+            processor.current_image_index = (processor.current_image_index - 1) % len(processor.images)
+        elif key == 83:  # Right arrow key
+            processor.current_image_index = (processor.current_image_index + 1) % len(processor.images)
         elif key == 27:  # ESC: Exit
             break
 
@@ -509,7 +591,7 @@ def main(sequence='../manual_sequence/sec4/'):
 
 
 if __name__ == "__main__":
-    if len(sys.argv)> 1:
+    if len(sys.argv) > 1:
         main(sys.argv[1])
     else:
         main()
