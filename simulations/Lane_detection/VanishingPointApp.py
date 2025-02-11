@@ -152,14 +152,16 @@ class ImageProcessor:
         if len(cluster_labels) > 0:
             # Find the strongest cluster
             cluster_sizes = np.bincount(cluster_labels)
-            strongest_cluster_id = np.argmax(cluster_sizes)
+            strongest_clusters_ids = np.argsort(cluster_sizes)[-2:]  # Obtaining the two largest clusters
 
-            # Get lines for the strongest cluster
-            cluster_lines = [line_eqs[indices[0]] for point, indices in relevant_intersections if
-                             cluster_labels[relevant_points.index(point)] == strongest_cluster_id]
-            if cluster_lines:
-                vp = VanishingPoint(cluster_lines)
-                vanishing_points.append(vp)
+            # Obtaining the vanishing points of the two largest clusters
+            vanishing_points = []
+            for cluster_id in strongest_clusters_ids:
+                cluster_lines = [line_eqs[indices[0]] for point, indices in relevant_intersections if
+                                 cluster_labels[relevant_points.index(point)] == cluster_id]
+                if cluster_lines:
+                    vp = VanishingPoint(cluster_lines)
+                    vanishing_points.append(vp)
 
         return {
             "bottom_half": bottom_half,
