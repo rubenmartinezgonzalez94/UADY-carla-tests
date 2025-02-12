@@ -52,7 +52,8 @@ class HiperParams:
         }
         self.relevant_intersections_horizon_threshold = 5
         self.cluster_n_intersections = 5
-        self.distance_threshold = 0
+        self.cluster_distance_threshold = 150
+        self.center_distance_threshold = 30
 
 
 class VanishingPoint:
@@ -90,7 +91,9 @@ class ImageProcessor:
         self.show_clusters: bool = False
         self.show_vanishing_points: bool = True
         self.show_info: bool = False
+        self.show_binary_image: bool = False
         self.errores = []
+        self.show_test: bool = False
 
     def load_images(self, directory: str):
         """
@@ -117,6 +120,11 @@ class ImageProcessor:
                           self.hiper_params.canny_params["threshold_2"])
 
         # Step 4: Detect lines using Hough Transform
+        # rho: Resolución del parámetro de distancia en píxeles.
+        # theta: Resolución del parámetro de ángulo en radianes np.pi / 180 = 1 grado
+        # threshold: Número mínimo de intersecciones en el espacio de parámetros para considerar una línea.
+        # minLineLength: Longitud mínima de la línea que se detectará.
+        # maxLineGap: Distancia máxima entre segmentos de línea que aún se considerarán parte de la misma línea.
         lines = cv2.HoughLinesP(
             edges,
             rho=self.hiper_params.hough_params["rho"],
@@ -143,8 +151,8 @@ class ImageProcessor:
         relevant_points = [point for point, _ in relevant_intersections]
         cluster_labels, cluster_centers = self.cluster_intersections(
             relevant_points,
-            self.hiper_params.cluster_n_intersections if self.hiper_params.distance_threshold is 0 else None,
-            self.hiper_params.distance_threshold if self.hiper_params.distance_threshold is not 0 else None
+            self.hiper_params.cluster_n_intersections if self.hiper_params.cluster_distance_threshold is 0 else None,
+            self.hiper_params.cluster_distance_threshold if self.hiper_params.cluster_distance_threshold is not 0 else None
         )
 
         # Step 10: Compute vanishing point for the strongest cluster
@@ -335,13 +343,17 @@ class ImageProcessor:
         print("ESC: Salir.")
 
     def update_display(self, image: np.ndarray, processed_data: dict) -> np.ndarray:
-        display_image = image.copy()
+        if self.show_binary_image:
+            display_image = processed_data["binary_gray_image"]
+            display_image = cv2.cvtColor(display_image, cv2.COLOR_GRAY2BGR)  # Convert to BGR for consistency
+        else:
+            display_image = image.copy()
         height, width = display_image.shape[:2]
         center_x, center_y = width // 2, height // 2
 
         if self.show_info:
+
             y_offset = 20
-            threshold_distance = 5
             # Show vanishing point coordinates
             for vp in processed_data["vanishing_points"]:
                 text = f"VP: ({int(vp.x)}, {int(vp.y)})"
@@ -350,8 +362,8 @@ class ImageProcessor:
 
                 # Check if the VP is near the center of the image
                 distance_to_center = np.sqrt((vp.x - center_x) ** 2 + (vp.y - center_y) ** 2)
-                if distance_to_center < threshold_distance:
-                    text = f"VP ({int(vp.x)}, {int(vp.y)}) is near to the image center"
+                if distance_to_center < self.hiper_params.center_distance_threshold:
+                    text = f"VP ({int(vp.x)}, {int(vp.y)}) is near to the image center ({center_x}, {center_y})"
                     cv2.putText(display_image, text, (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
                     y_offset += 20
 
@@ -430,6 +442,10 @@ class ImageProcessor:
                 cv2.drawMarker(display_image, (int(vp.x), int(vp.y)), (0, 255, 255), cv2.MARKER_CROSS, 30,
                                5)  # Yellow color for vanishing points
 
+        if self.show_test:
+            contours, _ = cv2.findContours(processed_data["binary_gray_image"], cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            cv2.drawContours(display_image, contours, -1, (0, 255, 0), 2)
+
         return display_image
 
     def create_trackbars(self):
@@ -439,7 +455,7 @@ class ImageProcessor:
                            100, self.update_horizon_threshold)
         cv2.createTrackbar("Cluster Intersections", "Trackbars", self.hiper_params.cluster_n_intersections, 20,
                            self.update_cluster_intersections)
-        cv2.createTrackbar("Cluster Distance Threshold", "Trackbars", self.hiper_params.distance_threshold, 500,
+        cv2.createTrackbar("Cluster Distance Threshold", "Trackbars", self.hiper_params.cluster_distance_threshold, 500,
                            self.update_distance_threshold)  # Add Trackbar for distance_thresholdackbar for distance_threshold
         cv2.createTrackbar("Canny Threshold 1", "Trackbars", self.hiper_params.canny_params["threshold_1"], 500,
                            self.update_canny_threshold_1)
@@ -453,6 +469,8 @@ class ImageProcessor:
                            self.update_max_line_gap)
         cv2.createTrackbar("Threshold Image", "Trackbars", self.hiper_params.threshold_image, 255,
                            self.update_threshold_image)
+        cv2.createTrackbar("Distance FOV to center", "Trackbars", self.hiper_params.center_distance_threshold, 500,
+                            self.update_center_distance_threshold)
 
     def toggle_pause(self, *args):
         self.paused = not self.paused
@@ -462,7 +480,7 @@ class ImageProcessor:
         self.process_and_display_current_image()
 
     def update_distance_threshold(self, value):
-        self.hiper_params.distance_threshold = value
+        self.hiper_params.cluster_distance_threshold = value
         self.process_and_display_current_image()
 
     def update_canny_threshold_1(self, value):
@@ -491,6 +509,10 @@ class ImageProcessor:
 
     def update_cluster_intersections(self, value):
         self.hiper_params.cluster_n_intersections = value
+        self.process_and_display_current_image()
+
+    def update_center_distance_threshold(self, value):
+        self.hiper_params.center_distance_threshold = value
         self.process_and_display_current_image()
 
     def process_and_display_current_image(self):
@@ -578,6 +600,10 @@ def main(sequence='../manual_sequence/sec4/'):
             processor.show_clusters = not processor.show_clusters
         elif key == ord('f'):  # F: Toggle vanishing points
             processor.show_vanishing_points = not processor.show_vanishing_points
+        elif key == ord('g'):  # G: Toggle between original and binary image
+            processor.show_binary_image = not processor.show_binary_image
+        elif key == ord('t'):  # t: Toggle print test
+            processor.show_test = not processor.show_test
         elif key == 81:  # Left arrow key
             processor.current_image_index = (processor.current_image_index - 1) % len(processor.images)
         elif key == 83:  # Right arrow key
