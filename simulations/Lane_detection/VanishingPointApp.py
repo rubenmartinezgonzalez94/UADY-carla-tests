@@ -558,7 +558,7 @@ def main(sequence='../manual_sequence/sec4/'):
 
         # Wait for a key press
         key = cv2.waitKey(30) & 0xFF
-
+          
         # Handle key presses
         if key == ord('p'):  # P: Pause/Resume the sequence
             processor.paused = not processor.paused
@@ -578,9 +578,11 @@ def main(sequence='../manual_sequence/sec4/'):
             processor.show_clusters = not processor.show_clusters
         elif key == ord('f'):  # F: Toggle vanishing points
             processor.show_vanishing_points = not processor.show_vanishing_points
-        elif key == 81:  # Left arrow key
+        elif key == 52:  # Left arrow key
+            print ("Key", key, chr(key))
             processor.current_image_index = (processor.current_image_index - 1) % len(processor.images)
-        elif key == 83:  # Right arrow key
+        elif key == 54:  # Right arrow key
+            print ("Key", key, chr(key))
             processor.current_image_index = (processor.current_image_index + 1) % len(processor.images)
         elif key == 27:  # ESC: Exit
             break
