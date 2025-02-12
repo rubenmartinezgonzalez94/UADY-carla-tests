@@ -604,9 +604,9 @@ def main(sequence='../manual_sequence/sec4/'):
             processor.show_binary_image = not processor.show_binary_image
         elif key == ord('t'):  # t: Toggle print test
             processor.show_test = not processor.show_test
-        elif key == 81:  # Left arrow key
+        elif key == 81 or key == 52:  # Left arrow key
             processor.current_image_index = (processor.current_image_index - 1) % len(processor.images)
-        elif key == 83:  # Right arrow key
+        elif key == 83 or key == 54:  # Right arrow key
             processor.current_image_index = (processor.current_image_index + 1) % len(processor.images)
         elif key == 27:  # ESC: Exit
             break
