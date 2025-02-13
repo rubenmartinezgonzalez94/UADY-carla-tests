@@ -151,8 +151,8 @@ class ImageProcessor:
         relevant_points = [point for point, _ in relevant_intersections]
         cluster_labels, cluster_centers = self.cluster_intersections(
             relevant_points,
-            self.hiper_params.cluster_n_intersections if self.hiper_params.cluster_distance_threshold is 0 else None,
-            self.hiper_params.cluster_distance_threshold if self.hiper_params.cluster_distance_threshold is not 0 else None
+            self.hiper_params.cluster_n_intersections if self.hiper_params.cluster_distance_threshold == 0 else None,
+            self.hiper_params.cluster_distance_threshold if self.hiper_params.cluster_distance_threshold != 0 else None
         )
 
         # Step 10: Compute vanishing point for the strongest cluster
@@ -160,7 +160,7 @@ class ImageProcessor:
         if len(cluster_labels) > 0:
             # Find the strongest cluster
             cluster_sizes = np.bincount(cluster_labels)
-            strongest_clusters_ids = np.argsort(cluster_sizes)[-2:]  # Obtaining the two largest clusters
+            strongest_clusters_ids = np.argsort(cluster_sizes)[-1:]  # Obtaining the two largest clusters
 
             # Obtaining the vanishing points of the two largest clusters
             vanishing_points = []
