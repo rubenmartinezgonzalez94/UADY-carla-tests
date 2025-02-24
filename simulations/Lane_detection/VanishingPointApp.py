@@ -340,6 +340,7 @@ class ImageProcessor:
         print("E: Mostrar/Ocultar líneas relevantes.")
         print("A: Mostrar/Ocultar cúmulos de intersecciones.")
         print("F: Mostrar/Ocultar puntos de fuga.")
+        print("G: Mostrar/Ocultar imagen binaria.")
         print("ESC: Salir.")
 
     def update_display(self, image: np.ndarray, processed_data: dict) -> np.ndarray:
@@ -450,12 +451,12 @@ class ImageProcessor:
 
     def create_trackbars(self):
         cv2.namedWindow("Trackbars", cv2.WINDOW_NORMAL)
-        cv2.createButton("Pause", self.toggle_pause, None, cv2.QT_PUSH_BUTTON, 0)
+        # cv2.createButton("Pause", self.toggle_pause, None, cv2.QT_PUSH_BUTTON, 0)
         cv2.createTrackbar("Horizon Threshold", "Trackbars", self.hiper_params.relevant_intersections_horizon_threshold,
                            100, self.update_horizon_threshold)
-        cv2.createTrackbar("Cluster Intersections", "Trackbars", self.hiper_params.cluster_n_intersections, 20,
+        cv2.createTrackbar("Cluster Intersections", "Trackbars", self.hiper_params.cluster_n_intersections, 50,
                            self.update_cluster_intersections)
-        cv2.createTrackbar("Cluster Distance Threshold", "Trackbars", self.hiper_params.cluster_distance_threshold, 500,
+        cv2.createTrackbar("Cluster Distance Threshold", "Trackbars", self.hiper_params.cluster_distance_threshold, 1000,
                            self.update_distance_threshold)  # Add Trackbar for distance_thresholdackbar for distance_threshold
         cv2.createTrackbar("Canny Threshold 1", "Trackbars", self.hiper_params.canny_params["threshold_1"], 500,
                            self.update_canny_threshold_1)
