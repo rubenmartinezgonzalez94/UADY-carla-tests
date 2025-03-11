@@ -4,6 +4,7 @@
 import random
 from typing import List, Tuple, Optional, Any
 from sklearn.cluster import AgglomerativeClustering
+from sklearn import linear_model
 import os
 import sys
 import cv2
@@ -89,6 +90,7 @@ class ImageProcessor:
         self.show_relevant_lines: bool = False
         self.show_clusters: bool = False
         self.show_vanishing_points: bool = True
+        self.show_gray_images: bool = False
         self.show_info: bool = False
         self.errores = []
 
@@ -126,8 +128,12 @@ class ImageProcessor:
             maxLineGap=self.hiper_params.hough_params["max_line_gap"]
         )
 
-        # Step 5: Compute line equations
-        line_eqs = self.compute_line_equations(lines)
+        # Step 5: Compute line equations and collect lines endpoin
+        line_eqs, end_pts = self.compute_line_equations(lines)
+
+        print(end_pts)
+        # Step 5.5: fit lines to the endpoints
+        end_lines = self.fit_lines_to_endpoints(end_pts)
 
         # Step 6: Compute intersections between lines
         intersections = self.compute_intersections(lines, line_eqs)
@@ -186,18 +192,34 @@ class ImageProcessor:
         )
         return lines
 
+
     def compute_line_equations(self, lines: np.ndarray) -> List[np.ndarray]:
         """
         Computes the equations of the lines in homogeneous coordinates.
         """
         line_eqs = []
+        (n,_,_) = lines.shape
+        end_pts = np.zeros((2*n,2))
+        idx=0
         if lines is not None:
             for line in lines:
                 x1, y1, x2, y2 = line[0]
+                end_pts[idx,:] += [x1,y1]
+                idx+=1
+                end_pts[idx,:] += [x2,y2]
+                idx+=1
                 M = np.array([[x1, y1, 1], [x2, y2, 1]])
                 line_eq = self.null_space(M)[:, 0]
                 line_eqs.append(line_eq)
-        return line_eqs
+        return line_eqs, end_pts
+
+    def fit_lines_to_endpoints(self, end_pts):
+        X=end_pts[:,0].reshape(-1,1)
+        y=end_pts[:,1].reshape(-1,1)
+        ransac = linear_model.RANSACRegressor()
+        ransac.fit(X, y)
+        
+        print("Coefs", [ransac.estimator_.coef_[0], ransac.estimator_.intercept_[0])
 
     def compute_intersections(
             self,
@@ -335,7 +357,11 @@ class ImageProcessor:
         print("ESC: Salir.")
 
     def update_display(self, image: np.ndarray, processed_data: dict) -> np.ndarray:
-        display_image = image.copy()
+        
+        if not self.show_gray_images:
+            display_image = image.copy()
+        else:
+            display_image = cv2.cvtColor(processed_data["binary_gray_image"], cv2.COLOR_GRAY2BGR)
         height, width = display_image.shape[:2]
         center_x, center_y = width // 2, height // 2
 
@@ -578,6 +604,8 @@ def main(sequence='../manual_sequence/sec4/'):
             processor.show_clusters = not processor.show_clusters
         elif key == ord('f'):  # F: Toggle vanishing points
             processor.show_vanishing_points = not processor.show_vanishing_points
+        elif key == ord('g'):  # G: Toggle vanishing points
+            processor.show_gray_images = not processor.show_gray_images
         elif key == 52:  # Left arrow key
             print ("Key", key, chr(key))
             processor.current_image_index = (processor.current_image_index - 1) % len(processor.images)
