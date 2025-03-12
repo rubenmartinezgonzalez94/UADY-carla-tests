@@ -9,6 +9,7 @@ import os
 import sys
 import cv2
 import numpy as np
+import PyRansac as pr
 
 Paleta = np.load("Paleta.npy")
 
@@ -366,19 +367,13 @@ class ImageProcessor:
         print("ESC: Salir.")
 
     def update_display(self, image: np.ndarray, processed_data: dict) -> np.ndarray:
-#<<<<<<< HEAD
-        
-#        if not self.show_gray_images:
-#            display_image = image.copy()
-#        else:
-#            display_image = cv2.cvtColor(processed_data["binary_gray_image"], cv2.COLOR_GRAY2BGR)
-#=======
+
         if self.show_binary_image:
             display_image = processed_data["binary_gray_image"]
             display_image = cv2.cvtColor(display_image, cv2.COLOR_GRAY2BGR)  # Convert to BGR for consistency
         else:
             display_image = image.copy()
-#>>>>>>> 2afa6a3e6ca4d484acd39d2212e605fa23365fa2
+
         height, width = display_image.shape[:2]
         center_x, center_y = width // 2, height // 2
 
@@ -631,18 +626,11 @@ def main(sequence='../manual_sequence/sec4/'):
             processor.show_clusters = not processor.show_clusters
         elif key == ord('f'):  # F: Toggle vanishing points
             processor.show_vanishing_points = not processor.show_vanishing_points
-#<<<<<< HEAD
-#        elif key == ord('g'):  # G: Toggle vanishing points
-#            processor.show_gray_images = not processor.show_gray_images
-#        elif key == 52:  # Left arrow key
-#            print ("Key", key, chr(key))
-#=======
         elif key == ord('g'):  # G: Toggle between original and binary image
             processor.show_binary_image = not processor.show_binary_image
         elif key == ord('t'):  # t: Toggle print test
             processor.show_test = not processor.show_test
         elif key == 81 or key == 52:  # Left arrow key
-#>>>>>>> 2afa6a3e6ca4d484acd39d2212e605fa23365fa2
             processor.current_image_index = (processor.current_image_index - 1) % len(processor.images)
         elif key == 83 or key == 54:  # Right arrow key
             processor.current_image_index = (processor.current_image_index + 1) % len(processor.images)
