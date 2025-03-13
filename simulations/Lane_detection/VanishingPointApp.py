@@ -95,6 +95,7 @@ class ImageProcessor:
         self.show_gray_images: bool = False
         self.show_info: bool = False
         self.show_binary_image: bool = False
+        self.show_vps = False
         self.errores = []
         self.show_test: bool = False
 
@@ -167,7 +168,7 @@ class ImageProcessor:
         if len(cluster_labels) > 0:
             # Find the strongest cluster
             cluster_sizes = np.bincount(cluster_labels)
-            strongest_clusters_ids = np.argsort(cluster_sizes)[-1:]  # Obtaining the two largest clusters
+            strongest_clusters_ids = np.argsort(cluster_sizes)[-1:]  # Obtaining the largest clusters
 
             # Obtaining the vanishing points of the two largest clusters
             vanishing_points = []
@@ -177,6 +178,9 @@ class ImageProcessor:
                 if cluster_lines:
                     vp = VanishingPoint(cluster_lines)
                     vanishing_points.append(vp)
+
+        # Step 11: Calculate second vanishing point
+        second_vanishing_point = self.get_vp2_by_vp1(vanishing_points[0])
 
         return {
             "bottom_half": bottom_half,
@@ -190,6 +194,7 @@ class ImageProcessor:
             "cluster_labels": cluster_labels,
             "cluster_centers": cluster_centers,
             "vanishing_points": vanishing_points,
+            "second_vanishing_point": second_vanishing_point
         }
 
     def detect_lines(self, edges: np.ndarray) -> Optional[np.ndarray]:
@@ -201,33 +206,32 @@ class ImageProcessor:
         )
         return lines
 
-
     def compute_line_equations(self, lines: np.ndarray) -> List[np.ndarray]:
         """
         Computes the equations of the lines in homogeneous coordinates.
         """
         line_eqs = []
-        (n,_,_) = lines.shape
-        end_pts = np.zeros((2*n,2))
-        idx=0
+        (n, _, _) = lines.shape
+        end_pts = np.zeros((2 * n, 2))
+        idx = 0
         if lines is not None:
             for line in lines:
                 x1, y1, x2, y2 = line[0]
-                end_pts[idx,:] += [x1,y1]
-                idx+=1
-                end_pts[idx,:] += [x2,y2]
-                idx+=1
+                end_pts[idx, :] += [x1, y1]
+                idx += 1
+                end_pts[idx, :] += [x2, y2]
+                idx += 1
                 M = np.array([[x1, y1, 1], [x2, y2, 1]])
                 line_eq = self.null_space(M)[:, 0]
                 line_eqs.append(line_eq)
         return line_eqs, end_pts
 
     def fit_lines_to_endpoints(self, end_pts):
-        X=end_pts[:,0].reshape(-1,1)
-        y=end_pts[:,1].reshape(-1,1)
+        X = end_pts[:, 0].reshape(-1, 1)
+        y = end_pts[:, 1].reshape(-1, 1)
         ransac = linear_model.RANSACRegressor()
         ransac.fit(X, y)
-        
+
         print("Coefs", [ransac.estimator_.coef_[0], ransac.estimator_.intercept_[0]])
 
     def compute_intersections(
@@ -363,6 +367,7 @@ class ImageProcessor:
         print("E: Mostrar/Ocultar líneas relevantes.")
         print("A: Mostrar/Ocultar cúmulos de intersecciones.")
         print("F: Mostrar/Ocultar puntos de fuga.")
+        print("V: Mostrar/Ocultar 2 puntos de fuga con líneas rojas.")
         print("G: Mostrar/Ocultar imagen binaria.")
         print("ESC: Salir.")
 
@@ -392,6 +397,12 @@ class ImageProcessor:
                     text = f"VP ({int(vp.x)}, {int(vp.y)}) is near to the image center ({center_x}, {center_y})"
                     cv2.putText(display_image, text, (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
                     y_offset += 20
+
+            # show second     vanishing point
+            vp = processed_data["second_vanishing_point"]
+            text = f"VP2: ({int(vp['x'])}, {int(vp['y'])})"
+            cv2.putText(display_image, text, (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
+            y_offset += 20
 
             # Show cluster information ordered by size
             cluster_labels = processed_data["cluster_labels"]
@@ -468,8 +479,22 @@ class ImageProcessor:
                 cv2.drawMarker(display_image, (int(vp.x), int(vp.y)), (0, 255, 255), cv2.MARKER_CROSS, 30,
                                5)  # Yellow color for vanishing points
 
+        if self.show_vps:
+            vp1 = processed_data["vanishing_points"][0]
+            cv2.drawMarker(display_image, (int(vp1.x), int(vp1.y)), (0, 0, 255), cv2.MARKER_TILTED_CROSS, 30,
+                           5)  # Red cross for vanishing points
+            cv2.line(display_image, (center_x, center_y), (int(vp1.x), int(vp1.y)), (0, 0, 255),
+                     2)  # Red line from center to vanishing point
+
+            vp2 = processed_data["second_vanishing_point"]
+            cv2.drawMarker(display_image, (int(vp2['x']), int(vp2['y'])), (0, 0, 255), cv2.MARKER_TILTED_CROSS, 30,
+                           5)  # Red cross for second vanishing point
+            cv2.line(display_image, (center_x, center_y), (int(vp2['x']), int(vp2['y'])), (0, 0, 255),
+                     2)  # Red line from center to second vanishing point
+
         if self.show_test:
-            contours, _ = cv2.findContours(processed_data["binary_gray_image"], cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            contours, _ = cv2.findContours(processed_data["binary_gray_image"], cv2.RETR_EXTERNAL,
+                                           cv2.CHAIN_APPROX_SIMPLE)
             cv2.drawContours(display_image, contours, -1, (0, 255, 0), 2)
 
         return display_image
@@ -481,7 +506,8 @@ class ImageProcessor:
                            100, self.update_horizon_threshold)
         cv2.createTrackbar("Cluster Intersections", "Trackbars", self.hiper_params.cluster_n_intersections, 50,
                            self.update_cluster_intersections)
-        cv2.createTrackbar("Cluster Distance Threshold", "Trackbars", self.hiper_params.cluster_distance_threshold, 1000,
+        cv2.createTrackbar("Cluster Distance Threshold", "Trackbars", self.hiper_params.cluster_distance_threshold,
+                           1000,
                            self.update_distance_threshold)  # Add Trackbar for distance_thresholdackbar for distance_threshold
         cv2.createTrackbar("Canny Threshold 1", "Trackbars", self.hiper_params.canny_params["threshold_1"], 500,
                            self.update_canny_threshold_1)
@@ -496,7 +522,7 @@ class ImageProcessor:
         cv2.createTrackbar("Threshold Image", "Trackbars", self.hiper_params.threshold_image, 255,
                            self.update_threshold_image)
         cv2.createTrackbar("Distance FOV to center", "Trackbars", self.hiper_params.center_distance_threshold, 500,
-                            self.update_center_distance_threshold)
+                           self.update_center_distance_threshold)
 
     def toggle_pause(self, *args):
         self.paused = not self.paused
@@ -547,6 +573,19 @@ class ImageProcessor:
             image = cv2.imread(image_info.image_path, cv2.IMREAD_COLOR)
             processed_data = self.process_image(image)
             self.update_display(image, processed_data)
+
+    def get_vp2_by_vp1(self, vp1):
+        vp1x = float(vp1.x)
+        vp1y = vp1.y
+        image_width = 1920
+        fov = 90
+        f = focal_length = image_width / (2 * np.tan(fov * np.pi / 360))
+        Cx = image_width / 2
+
+        vp2x = Cx - f ** 2 / (vp1x - Cx)
+        vp2y = vp1y
+        vp2 = {"x": vp2x, "y": vp2y}
+        return vp2
 
 
 def load_tagged_images(directory: str) -> List[ImageInfo]:
@@ -628,6 +667,8 @@ def main(sequence='../manual_sequence/sec4/'):
             processor.show_vanishing_points = not processor.show_vanishing_points
         elif key == ord('g'):  # G: Toggle between original and binary image
             processor.show_binary_image = not processor.show_binary_image
+        elif key == ord('v'):  # V: Toggle vanishing points with red lines
+            processor.show_vps = not processor.show_vps
         elif key == ord('t'):  # t: Toggle print test
             processor.show_test = not processor.show_test
         elif key == 81 or key == 52:  # Left arrow key
@@ -649,3 +690,19 @@ if __name__ == "__main__":
         main(sys.argv[1])
     else:
         main()
+
+# def get_calibration_matrix(image_width, image_height, fov=90):
+#     focal_length = image_width / (2 * np.tan(fov * np.pi / 360))
+#     calibration_matrix = np.array([[focal_length, 0, image_width / 2],
+#                                    [0, focal_length, image_height / 2],
+#                                    [0, 0, 1]])
+#     return calibration_matrix
+#
+#
+# +-+-----+-----+-----+
+# |   | 0     | 1     | 2     |
+# +-+-----+-----+-----+
+# | 0 | 960.0 | 0.0   | 960.0 |
+# | 1 | 0.0   | 960.0 | 540.0 |
+# | 2 | 0.0   | 0.0   | 1.0   |
+# +-+-----+-----+-----+
