@@ -91,13 +91,15 @@ class ImageProcessor:
         self.show_relevant_intersections: bool = False
         self.show_relevant_lines: bool = False
         self.show_clusters: bool = False
-        self.show_vanishing_points: bool = True
+        self.show_vanishing_points: bool = False
         self.show_gray_images: bool = False
         self.show_info: bool = False
         self.show_binary_image: bool = False
         self.show_vps = False
         self.errores = []
         self.show_test: bool = False
+        self.show_intersections_vps = False
+        self.show_lines_vps = False
 
     def load_images(self, directory: str):
         """
@@ -141,7 +143,7 @@ class ImageProcessor:
         # Step 5: Compute line equations and collect lines endpoin
         line_eqs, end_pts = self.compute_line_equations(lines)
 
-        print(end_pts)
+        # print(end_pts)
         # Step 5.5: fit lines to the endpoints
         end_lines = self.fit_lines_to_endpoints(end_pts)
 
@@ -182,6 +184,15 @@ class ImageProcessor:
         # Step 11: Calculate second vanishing point
         second_vanishing_point = self.get_vp2_by_vp1(vanishing_points[0])
 
+        # Step 12: Filter most relevant intersections (near the two vanishing points)
+        vp1 = {"x": vanishing_points[0].x, "y": vanishing_points[0].y}
+        intersections_near_vps = self.filter_intersections_near_vps(relevant_intersections,
+                                                                    [vp1, second_vanishing_point],
+                                                                    self.hiper_params.center_distance_threshold
+                                                                    )
+        # Step 13: Filter relevant lines near the vanishing points
+        lines_near_vps = self.filter_relevant_lines(lines, intersections_near_vps)
+
         return {
             "bottom_half": bottom_half,
             "binary_gray_image": binary_gray_image,
@@ -194,7 +205,9 @@ class ImageProcessor:
             "cluster_labels": cluster_labels,
             "cluster_centers": cluster_centers,
             "vanishing_points": vanishing_points,
-            "second_vanishing_point": second_vanishing_point
+            "second_vanishing_point": second_vanishing_point,
+            "intersections_near_vps": intersections_near_vps,
+            "lines_near_vps": lines_near_vps
         }
 
     def detect_lines(self, edges: np.ndarray) -> Optional[np.ndarray]:
@@ -232,7 +245,7 @@ class ImageProcessor:
         ransac = linear_model.RANSACRegressor()
         ransac.fit(X, y)
 
-        print("Coefs", [ransac.estimator_.coef_[0], ransac.estimator_.intercept_[0]])
+        # print("Coefs", [ransac.estimator_.coef_[0], ransac.estimator_.intercept_[0]])
 
     def compute_intersections(
             self,
@@ -358,18 +371,29 @@ class ImageProcessor:
         """
         Displays the legend with available options.
         """
-        print("\n--- Leyenda de Teclas ---")
-        print("P: Iniciar/Pausar la secuencia de imágenes.")
-        print("C: Mostrar/Ocultar contornos.")
-        print("L: Mostrar/Ocultar líneas.")
-        print("I: Mostrar/Ocultar intersecciones.")
-        print("R: Mostrar/Ocultar intersecciones relevantes.")
-        print("E: Mostrar/Ocultar líneas relevantes.")
-        print("A: Mostrar/Ocultar cúmulos de intersecciones.")
-        print("F: Mostrar/Ocultar puntos de fuga.")
-        print("V: Mostrar/Ocultar 2 puntos de fuga con líneas rojas.")
-        print("G: Mostrar/Ocultar imagen binaria.")
-        print("ESC: Salir.")
+        for line in self.get_legend():
+            print(line)
+
+    def get_legend(self):
+        return [
+            "\n--- Leyenda de Teclas ---",
+            "Arrow keys: adelantar/retroceder secuencia",
+            "P: play secuencia (Step 0)",
+            "D: detalles (Step 0)",
+            "G: grayscale (Step 2)",
+            "C: contornos (Step 3 Canny)",
+            "L: líneas (Step 4 Hough)",
+            "I: intersecciones (Step 6 all)",
+            "R: intersecciones (Step 7 near the horizon)",
+            "E: líneas relevantes(Step 8 near the horizon).",
+            "A: cúmulos (Step 9 AgglomerativeClustering).",
+            "F: 1er punto de fuga(Step 10).",
+            "V: 1er y 2do punto de fuga(Step 11).",
+            "Q: intersecciones (Step 12 near vanishing points)",
+            "W: líneas relevantes(Step 13 near vanishing points).",
+            "T: Test.",
+            "ESC: Salir."
+        ]
 
     def update_display(self, image: np.ndarray, processed_data: dict) -> np.ndarray:
 
@@ -414,6 +438,12 @@ class ImageProcessor:
                 text = f"Cluster {i}: {size} points, Center: ({int(center[0])}, {int(center[1])})"
                 cv2.putText(display_image, text, (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
                 y_offset += 20
+
+            legend = self.get_legend()
+            x_offset = int(1920 / 2)
+            for i, line in enumerate(legend):
+                cv2.putText(display_image, line, (x_offset, 20 + i * 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                            (255, 255, 255), 1)
 
             # Show errors
             for error in self.errores:
@@ -491,6 +521,21 @@ class ImageProcessor:
                            5)  # Red cross for second vanishing point
             cv2.line(display_image, (center_x, center_y), (int(vp2['x']), int(vp2['y'])), (0, 0, 255),
                      2)  # Red line from center to second vanishing point
+
+        # Show intersections near vanishing points
+        if self.show_intersections_vps:
+            for point, _ in processed_data["intersections_near_vps"]:
+                cv2.circle(display_image, point, 5, (0, 255, 255), -1)
+
+        # Show lines near     vanishingpoints
+        if self.show_lines_vps:
+            for point, (i, j) in processed_data["intersections_near_vps"]:
+                x1, y1, x2, y2 = processed_data["lines"][i][0]
+                x3, y3, x4, y4 = processed_data["lines"][j][0]
+                # Prolongar la línea i
+                cv2.line(display_image, (x1, y1), point, (255, 0, 255), 1)  # Magenta color for relevant lines
+                # Prolongar la línea j
+                cv2.line(display_image, (x3, y3), point, (255, 0, 255), 1)  # Magenta color for relevant lines
 
         if self.show_test:
             contours, _ = cv2.findContours(processed_data["binary_gray_image"], cv2.RETR_EXTERNAL,
@@ -587,6 +632,21 @@ class ImageProcessor:
         vp2 = {"x": vp2x, "y": vp2y}
         return vp2
 
+    def filter_intersections_near_vps(
+            self,
+            intersections: List[Tuple[Tuple[int, int], Tuple[int, int]]],
+            vps,
+            threshold=50
+    ) -> List[Tuple[Tuple[int, int], Tuple[int, int]]]:
+        intersections_near_vps = []
+        # return intersections near the vanishing points
+        for vp in vps:
+            for point, index in intersections:
+                x, y = point
+                if abs(x - vp['x']) < threshold and abs(y - vp['y']) < threshold:
+                    intersections_near_vps.append((point, index))
+        return intersections_near_vps
+
 
 def load_tagged_images(directory: str) -> List[ImageInfo]:
     """
@@ -671,6 +731,10 @@ def main(sequence='../manual_sequence/sec4/'):
             processor.show_vps = not processor.show_vps
         elif key == ord('t'):  # t: Toggle print test
             processor.show_test = not processor.show_test
+        elif key == ord('q'):  # Q: Toggle intersections near vanishing points
+            processor.show_intersections_vps = not processor.show_intersections_vps
+        elif key == ord('w'):  # W: Toggle relevant lines near vanishing points
+            processor.show_lines_vps = not processor.show_lines_vps
         elif key == 81 or key == 52:  # Left arrow key
             processor.current_image_index = (processor.current_image_index - 1) % len(processor.images)
         elif key == 83 or key == 54:  # Right arrow key
