@@ -16,6 +16,12 @@ function [l, lp, p, pp, Hl] = proj2Euclidean(Vp1, Vp2, Cy)
 %
 % Return:
 %
+% Extra: Parámetros de prueba: Cy, vp1 y vp2
+%
+% Cy = 540
+% vp1 = [1916, 540, 1]
+% vp2 = [  -3, 540, 1]
+%
 
 % Compute the transformation that maps the projective space into and
 % affine one.
@@ -24,8 +30,9 @@ function [l, lp, p, pp, Hl] = proj2Euclidean(Vp1, Vp2, Cy)
 % Define 4 random points on a line that is parallel to the horizon.
 	xc = round((Vp1(1)+Vp2(1))/2)
 	p = ones(3,4);
-	p(1, :) = sort(xc - round(1200*(rand(1,4)-0.5)));
+	p(1, :) = xc + [-600:400:600];
 	p(2, :) = round(Cy+Cy/2);
+
 
 % The lines that passes through the points p and the vanishing points are
 % computed and normalized.
@@ -58,6 +65,14 @@ function [l, lp, p, pp, Hl] = proj2Euclidean(Vp1, Vp2, Cy)
 	pp(:,3) = cross(lp(:,1), lp(:,4));
 	pp(:,4) = cross(lp(:,2), lp(:,4));
     pp = normPoints(pp);
+
+
+ % Esta parte de aqui Ya no debe estar. Debemos calcular la homografia entre los cuatro puntos
+ % pp y los cuatro puntos que definen la reticula. Esto es mas facil hacerlo en openCV
+ % utilizando la función findHomography
+ %
+ % https://docs.opencv.org/4.x/d9/d0c/group__calib3d.html#ga4abc2ece9fab9398f2e560d53c8c9780
+ %
 
  % An homography that translate the points in the affine space in such
  % way that minimizes de difference to the points in the projective space
