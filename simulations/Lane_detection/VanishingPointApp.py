@@ -439,6 +439,11 @@ class ImageProcessor:
                 cv2.putText(display_image, text, (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
                 y_offset += 20
 
+             #show current image path
+            image_info = self.images[self.current_image_index]
+            cv2.putText(display_image, image_info.image_path, (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+            y_offset += 20
+
             legend = self.get_legend()
             x_offset = int(1920 / 2)
             for i, line in enumerate(legend):
@@ -538,9 +543,12 @@ class ImageProcessor:
                 cv2.line(display_image, (x3, y3), point, (255, 0, 255), 1)  # Magenta color for relevant lines
 
         if self.show_test:
-            contours, _ = cv2.findContours(processed_data["binary_gray_image"], cv2.RETR_EXTERNAL,
-                                           cv2.CHAIN_APPROX_SIMPLE)
-            cv2.drawContours(display_image, contours, -1, (0, 255, 0), 2)
+            image_info = self.images[self.current_image_index]
+            # print(image_info.image_path)
+            lines_near_vps = processed_data["lines_near_vps"]
+            np.save('lines_near_vps.npy', lines_near_vps)
+
+            print("lines_near_vps saved")
 
         return display_image
 
