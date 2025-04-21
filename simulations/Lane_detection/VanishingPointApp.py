@@ -193,6 +193,8 @@ class ImageProcessor:
         # Step 13: Filter relevant lines near the vanishing points
         lines_near_vps = self.filter_relevant_lines(lines, intersections_near_vps)
 
+        merged_lines_near_vps = self.merge_lines(lines_near_vps)
+
         return {
             "bottom_half": bottom_half,
             "binary_gray_image": binary_gray_image,
@@ -207,7 +209,8 @@ class ImageProcessor:
             "vanishing_points": vanishing_points,
             "second_vanishing_point": second_vanishing_point,
             "intersections_near_vps": intersections_near_vps,
-            "lines_near_vps": lines_near_vps
+            "lines_near_vps": lines_near_vps,
+            "merged_lines_near_vps": merged_lines_near_vps
         }
 
     def detect_lines(self, edges: np.ndarray) -> Optional[np.ndarray]:
@@ -439,9 +442,10 @@ class ImageProcessor:
                 cv2.putText(display_image, text, (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
                 y_offset += 20
 
-             #show current image path
+            # show current image path
             image_info = self.images[self.current_image_index]
-            cv2.putText(display_image, image_info.image_path, (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+            cv2.putText(display_image, image_info.image_path, (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                        (255, 255, 255), 1)
             y_offset += 20
 
             legend = self.get_legend()
@@ -547,6 +551,9 @@ class ImageProcessor:
             # print(image_info.image_path)
             lines_near_vps = processed_data["lines_near_vps"]
             np.save('lines_near_vps.npy', lines_near_vps)
+
+            merged_lines_near_vps = processed_data["merged_lines_near_vps"]
+            np.save('merged_lines_near_vps.npy', merged_lines_near_vps)
 
             print("lines_near_vps saved")
 
@@ -654,6 +661,100 @@ class ImageProcessor:
                 if abs(x - vp['x']) < threshold and abs(y - vp['y']) < threshold:
                     intersections_near_vps.append((point, index))
         return intersections_near_vps
+
+    def merge_lines(self, lines):
+        n = len(lines)
+        checked_lines = np.ones(len(lines))
+        similarities = np.zeros((n + 1, n + 1), dtype=int)
+        for i in range(len(lines)):
+            similarities[i, 0] = 1
+            similarities[i, 1] = i
+            idx = 2
+            line_i = points_to_homogeneous_line(lines[i][0][0], lines[i][0][1], lines[i][0][2], lines[i][0][3])
+            for j in range(i + 1, len(lines)):
+                if checked_lines[j] == 1:
+                    line_j = points_to_homogeneous_line(lines[j][0][0], lines[j][0][1], lines[j][0][2], lines[j][0][3])
+                    if line_similarity(line_i, line_j, 1):
+                        checked_lines[j] = 0
+                        similarities[i, idx] = j
+                        similarities[0, idx] += 1  # i, 0
+                        idx += 1
+                    else:
+                        print('no similar')
+
+        # call to fusiona_lines
+        merged_lines = []
+        visited = np.zeros(len(lines), dtype=bool)
+
+        for i in range(len(similarities)):
+            if similarities[i, 0] > 0:
+                group_indices = similarities[i, 1: similarities[i, 0] + 1]
+                if not np.any(visited[group_indices]):
+                    group = [lines[k][0] for k in group_indices]
+                    homog_line = fusiona_lines(group)
+                    merged_line = lineHomo_to_linePoint(homog_line)
+                    merged_lines.append([np.array(merged_line, dtype=int)])
+                    visited[group_indices] = True
+
+        return merged_lines
+
+
+def fusiona_lines(lines):
+    n = len(lines)
+    if n == 1:
+        x1, y1, x2, y2 = lines[0]
+        return points_to_homogeneous_line(x1, y1, x2, y2)
+    w = np.zeros(n)
+    acum = 0
+    for i in range(n):
+        x1 = lines[i][0]
+        y1 = lines[i][1]
+        x2 = lines[i][2]
+        y2 = lines[i][3]
+        dx = x1 - x2
+        dy = y1 - y2
+        w[i] = np.sqrt(dx * dx + dy * dy)
+        acum += w[i]
+    w /= acum
+    m = sum(
+        w[i] * (np.array([lines[i][0], lines[i][1], 1]) + np.array([lines[i][2], lines[i][3], 1])) for i in
+        range(n - 1))
+    eigenvalues, eigenvectors = np.linalg.eig(m)
+    min_eigenvalue_index = np.argmin(eigenvalues)
+    result_line = eigenvectors[:, min_eigenvalue_index]
+    result_line /= result_line[2]
+    return result_line
+
+
+def points_to_homogeneous_line(x1, y1, x2, y2):
+    return np.cross([x1, y1, 1], [x2, y2, 1])
+
+
+def line_similarity(line1, line2, threshold=1):
+    # Normalize the lines
+    line1_n = line1 / np.linalg.norm(line1)
+    line2_n = line2 / np.linalg.norm(line2)
+
+    distance = np.dot(line1_n - line2_n, line1_n - line2_n)
+    # print('distance = ', distance)
+
+    # Compute similarity
+    return distance < threshold * threshold
+
+
+def lineHomo_to_linePoint(homo_line, x_range=(0, 1000)):
+    a, b, c = homo_line
+
+    if abs(b) > 1e-6:
+        x1, x2 = x_range
+        y1 = -(a * x1 + c) / b
+        y2 = -(a * x2 + c) / b
+    else:
+        # Línea vertical
+        x1 = x2 = -c / a if abs(a) > 1e-6 else 0
+        y1, y2 = 0, 1000
+
+    return (x1, y1, x2, y2)
 
 
 def load_tagged_images(directory: str) -> List[ImageInfo]:
