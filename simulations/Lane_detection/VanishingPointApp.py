@@ -193,7 +193,7 @@ class ImageProcessor:
         # Step 13: Filter relevant lines near the vanishing points
         lines_near_vps = self.filter_relevant_lines(lines, intersections_near_vps)
 
-        merged_lines_near_vps = self.merge_lines(lines_near_vps)
+        merged_lines_near_vps = self.merge_lines(lines_near_vps, merge_threshold=0.00001)
 
         return {
             "bottom_half": bottom_half,
@@ -662,25 +662,31 @@ class ImageProcessor:
                     intersections_near_vps.append((point, index))
         return intersections_near_vps
 
-    def merge_lines(self, lines):
+    def merge_lines(self, lines, merge_threshold=0.01):
         n = len(lines)
         checked_lines = np.ones(len(lines))
         similarities = np.zeros((n + 1, n + 1), dtype=int)
         for i in range(len(lines)):
-            similarities[i, 0] = 1
-            similarities[i, 1] = i
-            idx = 2
+            similarities[i, 0] = 1 #Number of similar elements.
+            idx = 1
             line_i = points_to_homogeneous_line(lines[i][0][0], lines[i][0][1], lines[i][0][2], lines[i][0][3])
+            Sim = np.zeros(len(lines))
+            Sidx=0
             for j in range(i + 1, len(lines)):
                 if checked_lines[j] == 1:
                     line_j = points_to_homogeneous_line(lines[j][0][0], lines[j][0][1], lines[j][0][2], lines[j][0][3])
-                    if line_similarity(line_i, line_j, 1):
+                    simil, dist = line_similarity(line_i, line_j, merge_threshold, normType=1)
+                    if simil:
+                        Sim[Sidx]=dist
+                        Sidx+=1
                         checked_lines[j] = 0
                         similarities[i, idx] = j
-                        similarities[0, idx] += 1  # i, 0
+                        similarities[1, 0] += 1  # i, 0
                         idx += 1
-                    else:
-                        print('no similar')
+                        #print('similar:', line_i, line_j, dist)
+                    #else:
+                        #print('no similar:', dist)
+            #print(i, Sidx, np.sort(Sim))
 
         # call to fusiona_lines
         merged_lines = []
@@ -703,7 +709,8 @@ def fusiona_lines(lines):
     n = len(lines)
     if n == 1:
         x1, y1, x2, y2 = lines[0]
-        return points_to_homogeneous_line(x1, y1, x2, y2)
+        l = points_to_homogeneous_line(x1, y1, x2, y2)
+        return l / l[2]
     w = np.zeros(n)
     acum = 0
     for i in range(n):
@@ -716,13 +723,18 @@ def fusiona_lines(lines):
         w[i] = np.sqrt(dx * dx + dy * dy)
         acum += w[i]
     w /= acum
-    m = sum(
-        w[i] * (np.array([lines[i][0], lines[i][1], 1]) + np.array([lines[i][2], lines[i][3], 1])) for i in
-        range(n - 1))
-    eigenvalues, eigenvectors = np.linalg.eig(m)
-    min_eigenvalue_index = np.argmin(eigenvalues)
-    result_line = eigenvectors[:, min_eigenvalue_index]
-    result_line /= result_line[2]
+
+    acumL = np.zeros((3))
+    for i in range(n):
+        x1 = lines[i][0]
+        y1 = lines[i][1]
+        x2 = lines[i][2]
+        y2 = lines[i][3]
+        l = points_to_homogeneous_line(x1, y1, x2, y2).astype('float')
+        l /= l[2]
+        acumL += w[i] * l
+
+    result_line = acumL / acumL[2]
     return result_line
 
 
@@ -730,16 +742,24 @@ def points_to_homogeneous_line(x1, y1, x2, y2):
     return np.cross([x1, y1, 1], [x2, y2, 1])
 
 
-def line_similarity(line1, line2, threshold=1):
-    # Normalize the lines
-    line1_n = line1 / np.linalg.norm(line1)
-    line2_n = line2 / np.linalg.norm(line2)
+def line_similarity(line1, line2, threshold=1, normType = 0):
+    if normType == 1:
+        # Normalize the lines as homogeneous variable
+        line1_n = line1 / line1[2]
+        line2_n = line2 / line2[2]
+        tmp = line1_n[:2] - line2_n[:2]
+        distance = np.dot(tmp, tmp)
+    else:
+        # Normalize the lines according to their size
+        line1_n = line1 / np.linalg.norm(line1)
+        line2_n = line2 / np.linalg.norm(line2)
+        tmp = line1_n - line2_n
+        distance = np.dot(tmp, tmp)
 
-    distance = np.dot(line1_n - line2_n, line1_n - line2_n)
     # print('distance = ', distance)
 
     # Compute similarity
-    return distance < threshold * threshold
+    return distance <= (threshold * threshold), distance
 
 
 def lineHomo_to_linePoint(homo_line, x_range=(0, 1000)):
