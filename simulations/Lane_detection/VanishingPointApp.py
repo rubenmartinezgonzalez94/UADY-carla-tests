@@ -10,6 +10,7 @@ import sys
 import cv2
 import numpy as np
 import PyRansac as pr
+import pickle
 
 Paleta = np.load("Paleta.npy")
 
@@ -140,12 +141,18 @@ class ImageProcessor:
             maxLineGap=self.hiper_params.hough_params["max_line_gap"]
         )
 
-        # Step 5: Compute line equations and collect lines endpoin
+        # Step 5: Compute line equations and collect lines endpoints
         line_eqs, end_pts = self.compute_line_equations(lines)
-
+        
         # print(end_pts)
         # Step 5.5: fit lines to the endpoints
-        end_lines = self.fit_lines_to_endpoints(end_pts)
+        end_pts_line_eqs, end_pts_lines, end_pts_info = self.fit_lines_to_endpoints(end_pts,thresh=0.5, max_error=0.5)
+
+        # Add end point lines to the list of lines
+        lines = np.concatenate((lines, end_pts_lines)).astype('int64')
+        
+        # Add end point lines equations to the list of lines equations
+        line_eqs += end_pts_line_eqs
 
         # Step 6: Compute intersections between lines
         intersections = self.compute_intersections(lines, line_eqs)
@@ -202,6 +209,7 @@ class ImageProcessor:
             "lines": lines,
             "line_eqs": line_eqs,
             "intersections": intersections,
+            "end_point_lines": end_pts_lines,
             "relevant_intersections": relevant_intersections,
             "relevant_lines": relevant_lines,
             "cluster_labels": cluster_labels,
@@ -242,13 +250,72 @@ class ImageProcessor:
                 line_eqs.append(line_eq)
         return line_eqs, end_pts
 
-    def fit_lines_to_endpoints(self, end_pts):
+    def fit_lines_to_endpoints(self, end_pts, thresh=1., max_error=1.):
         X = end_pts[:, 0].reshape(-1, 1)
-        y = end_pts[:, 1].reshape(-1, 1)
-        ransac = linear_model.RANSACRegressor()
-        ransac.fit(X, y)
+        Y = end_pts[:, 1].reshape(-1, 1)
+        
+        Lines=[]
+        Coefs =[]
+        linReg = pr.Ransac(e=0.2)
+        M=np.hstack([X,Y])
+        
+        N , _ = M.shape
+        Idx = np.arange(N)
 
-        # print("Coefs", [ransac.estimator_.coef_[0], ransac.estimator_.intercept_[0]])
+        [coefs, Error] = linReg.fitRansac(M, thrFact=thresh)
+        if Error == None:
+            return None
+
+        iX =  X[Idx[linReg.inliersIdx],0]
+        iY =  Y[Idx[linReg.inliersIdx],0]
+        
+        Coefs.append([coefs, Error, iX, iY])
+        
+        idxMask=np.ones(len(X)).astype('bool')
+        idxMask[linReg.inliersIdx]=False
+        
+        while(Error < max_error):
+            sX = end_pts[idxMask, 0].reshape(-1, 1)
+            sy = end_pts[idxMask, 1].reshape(-1, 1)
+            Idx = np.arange(N)[idxMask]
+
+            M=np.hstack([sX,sy])
+            n , _ = M.shape
+            if n < 5:
+                break
+            
+            [coefs, Error] = linReg.fitRansac(M, thrFact=1.)
+            if Error == None:
+                break
+            iX =  X[Idx[linReg.inliersIdx],0]
+            iY =  Y[Idx[linReg.inliersIdx],0]
+            Coefs.append([coefs, Error, iX, iY])
+            idxMask[Idx[linReg.inliersIdx]]=False
+
+        end_pts_line_eqs = []
+        end_pts_info = []
+        end_pts_lines = np.zeros((len(Coefs),1,4))
+        idx = 0
+        for C in Coefs:
+            iX = C[2]
+            iY = C[3]
+            
+            if min(iX) != max(iX):
+                indices = sorted(range(len(iX)),key=lambda index: X[index])
+                iX = iX[indices]
+                iY = iY[indices]
+            elif min(iY) != max(iY):
+                indices = sorted(range(len(iY)),key=lambda index: Y[index])
+                iX = iX[indices]
+                iY = iY[indices]
+            else:
+                print("fit_lines_to_endpoints:I should throw an exception!")
+            end_pts_line_eqs.append(C[0][:3])
+            end_pts_lines[idx,0,:] = [iX[0], iY[0], iX[-1], iY[-1]]
+            end_pts_info.append([C[1], iX, iY])
+            idx += 1
+        
+        return end_pts_line_eqs, end_pts_lines, end_pts_info
 
     def compute_intersections(
             self,
@@ -555,7 +622,15 @@ class ImageProcessor:
             merged_lines_near_vps = processed_data["merged_lines_near_vps"]
             np.save('merged_lines_near_vps.npy', merged_lines_near_vps)
 
+            end_point_lines = processed_data["end_point_lines"]
+            #print(end_point_lines)
+            with open("end_point_lines.pkl", "wb") as fp:   #Pickling
+                pickle.dump(end_point_lines, fp)
+            fp.close()
+            
+
             print("lines_near_vps saved")
+            self.show_test = False
 
         return display_image
 
@@ -790,6 +865,10 @@ def load_tagged_images(directory: str) -> List[ImageInfo]:
 
 
 def main(sequence='../manual_sequence/sec4/'):
+
+    print("*"*80)
+    print(("*"+" "*78+"*"+"\n")*5,end='')
+    print("*"*80)
     # Create an instance of ImageProcessor
     hiper_params = HiperParams()
     processor = ImageProcessor(hiper_params)

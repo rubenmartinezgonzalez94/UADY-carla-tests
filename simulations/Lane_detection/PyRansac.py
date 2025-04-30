@@ -40,7 +40,7 @@ class Ransac:
 		# outilers is 0.99.
 
 		# Get the data matrix size
-		m, c = M.shape
+		mR, mC = M.shape
 
 		# Missing: throw a exception if m < self.s
 
@@ -51,32 +51,35 @@ class Ransac:
 
 		idxs =np.zeros((self.s),dtype="int64")
 		
-		T = int(np.ceil((1. - self.e) * m))
-		print("nSamples=",self.nSamples)
+		T = int(np.ceil((1. - self.e) * mR))
+		
 		for i in range(self.nSamples):
 
 			# Selects s distinct indices in the interval [0,m)
-			if self.s < m:
-				idxs[0] = int(rnd.randint(1,m))
+			if self.s < mR:
+				idxs[0] = int(rnd.randint(0,mR))
 				for j in range(1,self.s):
-					value = int(rnd.randint(1,m))
-					while (value in idxs):
-						value = int(rnd.randint(1,m))
+					value = int(rnd.randint(0,mR))
+					while (value in idxs ):
+						value = int(rnd.randint(0,mR))
 					idxs[j] = value
-			else: pass #I should throw an exception here.
+			else:
+				print ("fitRansac:I should throw an exception here", (self.s, mR))
+				pass #I should throw an exception here.
 
-			sol = self.estimator.fitMinimal(M, idxs)
+			sol, success = self.estimator.fitMinimal(M, idxs)
 
-
+			if success == False:
+				continue
 			# Determine which points in the dataset are inliers
 
 			iNrm=1. / np.sqrt(sol[0] ** 2 + sol[1] ** 2)
-			inliersMask = np.full((m),False)
-			inliersIdx = np.full((m,), -1, dtype='int64')
-			outliersIdx = np.full((m,), -1, dtype='int64')
+			inliersMask = np.full((mR),False)
+			inliersIdx = np.full((mR,), -1, dtype='int64')
+			outliersIdx = np.full((mR,), -1, dtype='int64')
 			nInliers = nOutliers = 0
 			error = 0.
-			for j in range(m):
+			for j in range(mR):
 				distSq = self.estimator.minDistance(M[j,:])
 				if distSq < self.threshold:
 		   			inliersMask = True
@@ -86,7 +89,10 @@ class Ransac:
 				else:
 					outliersIdx[nOutliers] = j
 					nOutliers += 1
-			error /= nInliers
+			if nInliers != 0:
+				error /= nInliers
+			else:
+				error = None
 
 			inliersIdx = inliersIdx[:nInliers]
 			outliersIdx = outliersIdx[:nOutliers]
@@ -101,7 +107,7 @@ class Ransac:
 
 
 			if len(self.inliersIdx) > T:
-				print("Aboratando la misión: %d > %d" % (len(self.inliersIdx), T))
+				print("Abortando la misión: %d > %d" % (len(self.inliersIdx), T))
 				break
 
 		coefs = self.estimator.fitBest(M,self.inliersIdx)
@@ -126,15 +132,22 @@ class estimatorLine2D:
 		idx1 = idxs[1]
 			
 		normM = M[idx1,0] * M[idx0,1] - M[idx0,0] * M[idx1,1]
-		# I need to validate is normM is 0
-		A =-(M[idx0,1] - M[idx1,1]) / normM
-		B =(M[idx0,0] - M[idx1,0]) / normM
-		self.coefs = np.array([A,B])
-		self.intercept = 1.
-		self.iNormSq = 1. / (A * A + B * B)
-		self.iNorm = np.sqrt(self.iNormSq)
+		if normM != 0:
+			A =-(M[idx0,1] - M[idx1,1]) / normM
+			B =(M[idx0,0] - M[idx1,0]) / normM
+			self.coefs = np.array([A,B])
+			self.intercept = 1.
+			self.iNormSq = 1. / (A * A + B * B)
+			self.iNorm = np.sqrt(self.iNormSq)
+			return np.array([A, B, 1.]), True
+		else:
+			self.coefs = None
+			self.intercept = None
+			self.iNormSq = None
+			self.iNorm = None
+			return None, False
 	
-		return np.array([A, B, 1.])
+		
 		
     # Function that find the model coefficients that best fit the inliers
     # stored in idxs.
