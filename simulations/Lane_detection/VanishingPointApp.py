@@ -11,6 +11,8 @@ import cv2
 import numpy as np
 import PyRansac as pr
 import pickle
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 
 Paleta = np.load("Paleta.npy")
 
@@ -103,7 +105,7 @@ class ImageProcessor:
         self.show_intersections_vps = False
         self.show_lines_vps = False
         self.show_merged_lines_vps = False
-
+        self.show_homography_grond_lines = False
 
     def load_images(self, directory: str):
         """
@@ -205,6 +207,9 @@ class ImageProcessor:
 
         merged_lines_near_vps = self.merge_lines(lines_near_vps, self.hiper_params.merge_lines_threshold)
 
+        # Step 14: parking grid RECONSTRUCTION by camera  image lines
+        ground_lines = self.build_ground_lines(lines_near_vps)
+
         return {
             "bottom_half": bottom_half,
             "binary_gray_image": binary_gray_image,
@@ -221,7 +226,8 @@ class ImageProcessor:
             "second_vanishing_point": second_vanishing_point,
             "intersections_near_vps": intersections_near_vps,
             "lines_near_vps": lines_near_vps,
-            "merged_lines_near_vps": merged_lines_near_vps
+            "merged_lines_near_vps": merged_lines_near_vps,
+            "ground_lines" : ground_lines
         }
 
     def detect_lines(self, edges: np.ndarray) -> Optional[np.ndarray]:
@@ -465,6 +471,7 @@ class ImageProcessor:
             "Q: intersecciones (Step 12 near vanishing points)",
             "W: líneas relevantes(Step 13 near vanishing points).",
             "M: líneas relevantes Mezcladas(Step 14 near vanishing points).",
+            "H: Reconstrucción de líneas en el plano del suelo.",
             "T: Test.",
             "ESC: Salir."
         ]
@@ -623,6 +630,35 @@ class ImageProcessor:
                 pt1 = x1, y1
                 pt2 = x2, y2
                 cv2.line(display_image, pt1, pt2, (0, 255, 0), 1)
+
+        if self.show_homography_grond_lines:
+            ground_lines = processed_data["ground_lines"]
+            # Crear una imagen en blanco para dibujar
+            canvas_width, canvas_height = 800, 800
+            canvas = np.ones((canvas_height, canvas_width, 3), dtype=np.uint8) * 255  # Fondo blanco
+
+            # Escalar las coordenadas al tamaño del canvas
+            scale = 50  # Escala para convertir metros a píxeles
+            offset_x, offset_z = canvas_width // 2, canvas_height // 2  # Centrar en el canvas
+
+            # Dibujar las líneas del suelo
+            for p1, p2 in ground_lines:
+                x1, z1 = int(p1[0] * scale + offset_x), int(offset_z - p1[2] * scale)
+                x2, z2 = int(p2[0] * scale + offset_x), int(offset_z - p2[2] * scale)
+                cv2.line(canvas, (x1, z1), (x2, z2), (255, 0, 0), 2)  # Azul para las líneas
+
+            # Dibujar el rectángulo azul (carrito)
+            car_x, car_z = -1, -4  # Coordenadas iniciales del carrito
+            car_width, car_length = 2, 4  # Ancho y largo del carrito
+            rect_x1 = int(car_x * scale + offset_x)
+            rect_z1 = int(offset_z - car_z * scale)
+            rect_x2 = int((car_x + car_width) * scale + offset_x)
+            rect_z2 = int(offset_z - (car_z + car_length) * scale)
+            cv2.rectangle(canvas, (rect_x1, rect_z1), (rect_x2, rect_z2), (0, 0, 255), -1)  # Rojo relleno
+
+            # Mostrar la imagen en una ventana de OpenCV
+            cv2.imshow("Homography Ground Lines", canvas)
+            cv2.waitKey(1)  # Refrescar la ventana
 
         if self.show_test:
             image_info = self.images[self.current_image_index]
@@ -796,6 +832,45 @@ class ImageProcessor:
 
         return merged_lines
 
+    def build_ground_lines(self, lines_near_vps):
+        image_width, image_height = 1920, 1080
+        fov = 90  # grados
+        camera_height = 1.3  # metros
+        ground_lines = []
+
+        # Calcular focal en píxeles
+        f = image_width / (2 * np.tan(np.radians(fov / 2)))
+        cx, cy = image_width / 2, image_height / 2
+
+        # Matriz intrínseca
+        K = np.array([
+            [f, 0, cx],
+            [0, f, cy],
+            [0, 0, 1]
+        ])
+        K_inv = np.linalg.inv(K)
+
+        for line in lines_near_vps:
+            x1, y1, x2, y2 = line[0]
+
+            # Proyección al espacio
+            p1_img = np.array([x1, y1, 1])
+            p2_img = np.array([x2, y2, 1])
+
+            # Rayos en cámara
+            r1_cam = K_inv @ p1_img
+            r2_cam = K_inv @ p2_img
+
+            # Escalar rayos para intersectar el plano Z=0 (suelo)
+            scale1 = camera_height / r1_cam[1]
+            scale2 = camera_height / r2_cam[1]
+
+            p1_ground = r1_cam * scale1
+            p2_ground = r2_cam * scale2
+
+            ground_lines.append((p1_ground, p2_ground))
+        return ground_lines
+
 
 def fusiona_lines(lines):
     n = len(lines)
@@ -962,6 +1037,8 @@ def main(sequence='../manual_sequence/sec4/'):
             processor.show_lines_vps = not processor.show_lines_vps
         elif key == ord('m'):
             processor.show_merged_lines_vps = not processor.show_merged_lines_vps
+        elif key == ord('h'):  # H: Show homography
+            processor.show_homography_grond_lines = not processor.show_homography_grond_lines
         elif key == 81 or key == 52:  # Left arrow key
             processor.current_image_index = (processor.current_image_index - 1) % len(processor.images)
         elif key == 83 or key == 54:  # Right arrow key
