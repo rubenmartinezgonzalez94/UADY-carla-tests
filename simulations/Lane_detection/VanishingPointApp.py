@@ -57,6 +57,7 @@ class HiperParams:
         self.cluster_n_intersections = 5
         self.cluster_distance_threshold = 150
         self.center_distance_threshold = 30
+        self.merge_lines_threshold = 0.0001
 
 
 class VanishingPoint:
@@ -101,6 +102,8 @@ class ImageProcessor:
         self.show_test: bool = False
         self.show_intersections_vps = False
         self.show_lines_vps = False
+        self.show_merged_lines_vps = False
+
 
     def load_images(self, directory: str):
         """
@@ -146,13 +149,13 @@ class ImageProcessor:
         
         # print(end_pts)
         # Step 5.5: fit lines to the endpoints
-        end_pts_line_eqs, end_pts_lines, end_pts_info = self.fit_lines_to_endpoints(end_pts,thresh=0.5, max_error=0.5)
+        #end_pts_line_eqs, end_pts_lines, end_pts_info = self.fit_lines_to_endpoints(end_pts,thresh=0.5, max_error=0.5)
 
         # Add end point lines to the list of lines
-        lines = np.concatenate((lines, end_pts_lines)).astype('int64')
+        #lines = np.concatenate((lines, end_pts_lines)).astype('int64')
         
         # Add end point lines equations to the list of lines equations
-        line_eqs += end_pts_line_eqs
+        #line_eqs += end_pts_line_eqs
 
         # Step 6: Compute intersections between lines
         intersections = self.compute_intersections(lines, line_eqs)
@@ -200,7 +203,7 @@ class ImageProcessor:
         # Step 13: Filter relevant lines near the vanishing points
         lines_near_vps = self.filter_relevant_lines(lines, intersections_near_vps)
 
-        merged_lines_near_vps = self.merge_lines(lines_near_vps, merge_threshold=0.00001)
+        merged_lines_near_vps = self.merge_lines(lines_near_vps, self.hiper_params.merge_lines_threshold)
 
         return {
             "bottom_half": bottom_half,
@@ -209,7 +212,7 @@ class ImageProcessor:
             "lines": lines,
             "line_eqs": line_eqs,
             "intersections": intersections,
-            "end_point_lines": end_pts_lines,
+            #"end_point_lines": end_pts_lines,
             "relevant_intersections": relevant_intersections,
             "relevant_lines": relevant_lines,
             "cluster_labels": cluster_labels,
@@ -461,6 +464,7 @@ class ImageProcessor:
             "V: 1er y 2do punto de fuga(Step 11).",
             "Q: intersecciones (Step 12 near vanishing points)",
             "W: líneas relevantes(Step 13 near vanishing points).",
+            "M: líneas relevantes Mezcladas(Step 14 near vanishing points).",
             "T: Test.",
             "ESC: Salir."
         ]
@@ -612,6 +616,13 @@ class ImageProcessor:
                 cv2.line(display_image, (x1, y1), point, (255, 0, 255), 1)  # Magenta color for relevant lines
                 # Prolongar la línea j
                 cv2.line(display_image, (x3, y3), point, (255, 0, 255), 1)  # Magenta color for relevant lines
+        if self.show_merged_lines_vps:
+            merged_lines_near_vps = processed_data["merged_lines_near_vps"]
+            for line in merged_lines_near_vps:
+                x1, y1, x2, y2 = line[0]
+                pt1 = x1, y1
+                pt2 = x2, y2
+                cv2.line(display_image, pt1, pt2, (0, 255, 0), 1)
 
         if self.show_test:
             image_info = self.images[self.current_image_index]
@@ -658,6 +669,8 @@ class ImageProcessor:
                            self.update_threshold_image)
         cv2.createTrackbar("Distance FOV to center", "Trackbars", self.hiper_params.center_distance_threshold, 500,
                            self.update_center_distance_threshold)
+        cv2.createTrackbar("Merged lines Threshold", "Trackbars", 3, 10,
+                           self.update_merge_lines_threshold)
 
     def toggle_pause(self, *args):
         self.paused = not self.paused
@@ -700,6 +713,10 @@ class ImageProcessor:
 
     def update_center_distance_threshold(self, value):
         self.hiper_params.center_distance_threshold = value
+        self.process_and_display_current_image()
+
+    def update_merge_lines_threshold(self, value):
+        self.hiper_params.merge_lines_threshold = 10 ** -value
         self.process_and_display_current_image()
 
     def process_and_display_current_image(self):
@@ -943,6 +960,8 @@ def main(sequence='../manual_sequence/sec4/'):
             processor.show_intersections_vps = not processor.show_intersections_vps
         elif key == ord('w'):  # W: Toggle relevant lines near vanishing points
             processor.show_lines_vps = not processor.show_lines_vps
+        elif key == ord('m'):
+            processor.show_merged_lines_vps = not processor.show_merged_lines_vps
         elif key == 81 or key == 52:  # Left arrow key
             processor.current_image_index = (processor.current_image_index - 1) % len(processor.images)
         elif key == 83 or key == 54:  # Right arrow key
