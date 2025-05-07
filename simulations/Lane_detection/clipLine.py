@@ -1,12 +1,41 @@
 #! /usr/bin/env python3
 # coding: UTF-8
 
+"""
+clipLine.py
+Author: Arturo Espinosa Romero
+Date:  07/May/2025
+"""
+
 import numpy as np
 
-def clipLine(ln, p):
-	corners = np.array([[p[0][0],p[1][0], p[2][0], p[3][0]],
- 	                   [p[0][1],p[1][1], p[2][1], p[3][1]],
-		               [1,1,1,1]])
+"""
+brief: Find the points os the intersection of the homogeneous line ln
+       with a bounding box.
+
+Parameters
+
+  ln: A three element numpy array that contains the coeficients that 
+      define a line in the 2D-Plane, i.e. the vector [A,B,C], that
+      corresponds to the line equation Ax+By+C=0.
+
+  tl: A two-element list, tuple or array that contain the coordinates
+      of the top-left corner of the bounding-box. The coordinate is
+      expected to be column-wise, i.e. [column, row].
+  wh: A two-element list, tuple or array that contain the width and height
+      of the bounding-box, e.g. [width, height].
+
+Returns
+
+  P1, P2: Two numpy arrays that contain the homogeneous 2D coordinates of the
+          intersection of the line ln with the bounding-box defined by tl and wh.
+
+  Status: A boolean which indicate if the intersections where found.
+"""
+def clipLine(ln, tl, wh):
+	corners = np.array([[tl[0], tl[0]+wh[0], tl[0]+wh[0],    tl[0]],
+		                [tl[1], tl[1],    tl[1]+wh[1], tl[1]+wh[1]],
+		                [    1,     1,              1,           1]])
 
 	sides = np.zeros((3,4))
 	sides[:, 0] = np.cross(corners[:, 0], corners[:, 1])
