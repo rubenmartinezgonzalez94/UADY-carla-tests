@@ -13,6 +13,7 @@ import PyRansac as pr
 import pickle
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+from clipLine import *
 
 Paleta = np.load("Paleta.npy")
 
@@ -59,7 +60,7 @@ class HiperParams:
         self.cluster_n_intersections = 5
         self.cluster_distance_threshold = 150
         self.center_distance_threshold = 30
-        self.merge_lines_threshold = 0.0001
+        self.merge_lines_threshold = 1.
 
 
 class VanishingPoint:
@@ -752,7 +753,7 @@ class ImageProcessor:
         self.process_and_display_current_image()
 
     def update_merge_lines_threshold(self, value):
-        self.hiper_params.merge_lines_threshold = 10 ** -value
+        self.hiper_params.merge_lines_threshold = value
         self.process_and_display_current_image()
 
     def process_and_display_current_image(self):
@@ -803,7 +804,8 @@ class ImageProcessor:
             for j in range(i + 1, len(lines)):
                 if checked_lines[j] == 1:
                     line_j = points_to_homogeneous_line(lines[j][0][0], lines[j][0][1], lines[j][0][2], lines[j][0][3])
-                    simil, dist = line_similarity(line_i, line_j, merge_threshold, normType=1)
+                    simil, dist = line_similarity(line_i, line_j, merge_threshold, normType=0 )
+                    print("Dist(%d,%d)=%f" % (i,j,dist))
                     if simil:
                         Sim[Sidx]=dist
                         Sidx+=1
@@ -909,19 +911,35 @@ def points_to_homogeneous_line(x1, y1, x2, y2):
     return np.cross([x1, y1, 1], [x2, y2, 1])
 
 
-def line_similarity(line1, line2, threshold=1, normType = 0):
+def line_similarity(line_a, line_b, threshold=1, normType = 0, region=[1920, 1080]):
     if normType == 1:
         # Normalize the lines as homogeneous variable
-        line1_n = line1 / line1[2]
-        line2_n = line2 / line2[2]
-        tmp = line1_n[:2] - line2_n[:2]
+        linea_n = line_a / line_a[2]
+        lineb_n = line_b / line_b[2]
+        tmp = linea_n[:2] - lineb_n[:2]
+        distance = np.dot(tmp, tmp)
+    elif normType == 2:
+        # Normalize the lines according to their size
+        linea_n = line_b / np.linalg.norm(line_b)
+        linea_n = line_a / np.linalg.norm(line_a)
+        tmp = lineb_n - linea_n
         distance = np.dot(tmp, tmp)
     else:
-        # Normalize the lines according to their size
-        line1_n = line1 / np.linalg.norm(line1)
-        line2_n = line2 / np.linalg.norm(line2)
-        tmp = line1_n - line2_n
-        distance = np.dot(tmp, tmp)
+        pl1, pl2, success = clipLine(line_a, (0,region[1]/2), (region[0],region[1]/2))
+        if success == True:
+            pl3, pl4, success = clipLine(line_b, (0,region[1]/2), (region[0],region[1]/2))
+            if success == True:
+                d=[]
+                tmp = pl1[:2]-pl3[:2]
+                d.append(np.dot(tmp,tmp)) #Squared Distance between pl1 and pl2
+                tmp = pl2[:2]-pl4[:2]
+                d.append(np.dot(tmp,tmp)) #Squared Distance between pl2 and pl4
+                tmp = pl2[:2]-pl3[:2]
+                d.append(np.dot(tmp,tmp)) #Squared Distance between pl2 and pl3
+                tmp = pl1[:2]-pl4[:2]
+                d.append(np.dot(tmp,tmp)) #Squared Distance between pl1 and pl4
+                tmp = pl1[:2]-pl2[:2]
+                distance = min(d)
 
     # print('distance = ', distance)
 
