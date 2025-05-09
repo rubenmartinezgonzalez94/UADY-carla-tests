@@ -795,27 +795,36 @@ class ImageProcessor:
         n = len(lines)
         checked_lines = np.ones(len(lines))
         similarities = np.zeros((n + 1, n + 1), dtype=int)
+        Identicas_DBG=0
         for i in range(len(lines)):
             similarities[i, 0] = 1 #Number of similar elements.
             idx = 1
             line_i = points_to_homogeneous_line(lines[i][0][0], lines[i][0][1], lines[i][0][2], lines[i][0][3])
+            
+            LI_DBG=np.array(lines[i][0,:]).reshape(2,2).transpose()
             Sim = np.zeros(len(lines))
             Sidx=0
             for j in range(i + 1, len(lines)):
                 if checked_lines[j] == 1:
                     line_j = points_to_homogeneous_line(lines[j][0][0], lines[j][0][1], lines[j][0][2], lines[j][0][3])
-                    simil, dist = line_similarity(line_i, line_j, merge_threshold, normType=0 )
-                    print("Dist(%d,%d)=%f" % (i,j,dist))
-                    if simil:
-                        Sim[Sidx]=dist
-                        Sidx+=1
-                        checked_lines[j] = 0
-                        similarities[i, idx] = j
-                        similarities[1, 0] += 1  # i, 0
-                        idx += 1
-                        #print('similar:', line_i, line_j, dist)
-                    #else:
-                        #print('no similar:', dist)
+                    LJ_DBG=np.array(lines[j][0,:]).reshape(2,2).transpose()
+                    if np.max(np.abs(LJ_DBG-LI_DBG)) != 0:
+                        simil, dist, _ = line_similarity(line_i, line_j, merge_threshold, normType=0 )
+                        if simil:
+                            print("Dist(%d,%d)=%f" % (i,j,dist))
+                            Sim[Sidx]=dist
+                            Sidx+=1
+                            checked_lines[j] = 0
+                            similarities[i, idx] = j
+                            similarities[1, 0] += 1  # i, 0
+                            idx += 1
+                            #print('similar:', line_i, line_j, dist)
+                        #else:
+                            #print('no similar:', dist)
+                    else:
+                        Identicas_DBG+=1
+        
+        print("Se Encontraron %d lineas identicas." % (Identicas_DBG))                
             #print(i, Sidx, np.sort(Sim))
 
         # call to fusiona_lines
@@ -911,7 +920,28 @@ def points_to_homogeneous_line(x1, y1, x2, y2):
     return np.cross([x1, y1, 1], [x2, y2, 1])
 
 
+
+def sortPts(P):
+    theta = np.zeros(4)
+    mX = np.mean(P[0,: ])
+    mY = np.mean(P[1, :])
+    for k in range(4):
+        Dx = P[0, k] - mX
+        Dy = P[1, k] - mY
+        theta[k] = np.arctan2(Dy, Dx)
+    
+    indices = sorted(range(len(theta)), key = lambda index: theta[index])
+    sP = P[:, indices]
+    return sP, indices
+
+def sortPtsIdx(p,i,j):
+    P = np.array([[p[i, 0, 0],p[i, 0, 2],p[j, 0, 0],p[j, 0, 2]],
+                  [p[i, 0, 1],p[i, 0, 3],p[j, 0, 1],p[j, 0, 3]],
+                  [  1,                1,         1,        1]]).astype('float64')
+    return sortPts(P)
+
 def line_similarity(line_a, line_b, threshold=1, normType = 0, region=[1920, 1080]):
+    distance = np.inf
     if normType == 1:
         # Normalize the lines as homogeneous variable
         linea_n = line_a / line_a[2]
@@ -925,26 +955,35 @@ def line_similarity(line_a, line_b, threshold=1, normType = 0, region=[1920, 108
         tmp = lineb_n - linea_n
         distance = np.dot(tmp, tmp)
     else:
-        pl1, pl2, success = clipLine(line_a, (0,region[1]/2), (region[0],region[1]/2))
+        
+        pl1, pl2, success = clipLine(line_a, (0,region[1]//2), (region[0],region[1]//2))
+        
         if success == True:
-            pl3, pl4, success = clipLine(line_b, (0,region[1]/2), (region[0],region[1]/2))
+            pl3, pl4, success = clipLine(line_b, (0,region[1]//2), (region[0],region[1]//2))
+            
             if success == True:
+                
+                P = np.hstack([pl1,pl2,pl3,pl4]).reshape(4,3).transpose()
+                
+                sP, idx = sortPts(P)
+                
                 d=[]
-                tmp = pl1[:2]-pl3[:2]
-                d.append(np.dot(tmp,tmp)) #Squared Distance between pl1 and pl2
-                tmp = pl2[:2]-pl4[:2]
-                d.append(np.dot(tmp,tmp)) #Squared Distance between pl2 and pl4
-                tmp = pl2[:2]-pl3[:2]
-                d.append(np.dot(tmp,tmp)) #Squared Distance between pl2 and pl3
-                tmp = pl1[:2]-pl4[:2]
-                d.append(np.dot(tmp,tmp)) #Squared Distance between pl1 and pl4
-                tmp = pl1[:2]-pl2[:2]
-                distance = min(d)
-
-    # print('distance = ', distance)
+                tmp = sP[:2,0]-sP[:2,1]
+                d.append(np.dot(tmp, tmp)) #Squared Distance between P[0,:] and P[1,:]
+                tmp = sP[:2,2]-sP[:2,3]
+                d.append(np.dot(tmp, tmp)) #Squared Distance between P[0,:] and P[1,:]
+                pts = P.copy()
+                if d[0] > d[1]:
+                    distance = d[0]
+                    pts = np.hstack([pts, np.array(sP[:,0],ndmin=2).transpose()])
+                    pts = np.hstack([pts, np.array(sP[:,1],ndmin=2).transpose()])
+                else:
+                    distance = d[1]
+                    pts = np.hstack([pts, np.array(sP[:,2],ndmin=2).transpose()])
+                    pts = np.hstack([pts, np.array(sP[:,3],ndmin=2).transpose()])
 
     # Compute similarity
-    return distance <= (threshold * threshold), distance
+    return distance <= (threshold * threshold), distance, pts
 
 
 def lineHomo_to_linePoint(homo_line, x_range=(0, 1000)):
