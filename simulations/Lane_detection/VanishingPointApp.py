@@ -205,9 +205,13 @@ class ImageProcessor:
                                                                     )
         # Step 13: Filter relevant lines near the vanishing points
         lines_near_vps = self.filter_relevant_lines(lines, intersections_near_vps)
+        
 
         merged_lines_near_vps = self.merge_lines(lines_near_vps, self.hiper_params.merge_lines_threshold)
-
+        print("len(lines)          = ", len(lines))
+        print("len(lines_near_vps) = ", len(lines_near_vps))
+        print("len(merged_lines_near_vps) = ", len(merged_lines_near_vps))
+        print("\n")
         # Step 14: parking grid RECONSTRUCTION by camera  image lines
         ground_lines = self.build_ground_lines(lines_near_vps)
 
@@ -375,10 +379,15 @@ class ImageProcessor:
         Filters lines that intersect at relevant intersections.
         """
         relevant_lines = []
+        mask = np.ones(len(lines)).astype(bool)
         if lines is not None:
             for point, (i, j) in relevant_intersections:
-                relevant_lines.append(lines[i])
-                relevant_lines.append(lines[j])
+                if mask[i] == True:
+                    relevant_lines.append(lines[i])
+                    mask[i] = False
+                if mask[j] == True:
+                    relevant_lines.append(lines[j])
+                    mask[j] = False
         return relevant_lines
 
     def cluster_intersections(
@@ -706,7 +715,7 @@ class ImageProcessor:
                            self.update_threshold_image)
         cv2.createTrackbar("Distance FOV to center", "Trackbars", self.hiper_params.center_distance_threshold, 500,
                            self.update_center_distance_threshold)
-        cv2.createTrackbar("Merged lines Threshold", "Trackbars", 3, 10,
+        cv2.createTrackbar("Merged lines Threshold", "Trackbars", 3, 100,
                            self.update_merge_lines_threshold)
 
     def toggle_pause(self, *args):
@@ -793,54 +802,61 @@ class ImageProcessor:
 
     def merge_lines(self, lines, merge_threshold=0.01):
         n = len(lines)
-        checked_lines = np.ones(len(lines))
-        similarities = np.zeros((n + 1, n + 1), dtype=int)
+        checked_lines = np.ones(n)
+        similarities = np.zeros((n, n + 1), dtype=int)
         Identicas_DBG=0
-        for i in range(len(lines)):
-            similarities[i, 0] = 1 #Number of similar elements.
+        #print("len(lines) = ",len(lines))
+        for i in range(n):
+            similarities[i, 0] = 0 #Number of similar elements.
             idx = 1
             line_i = points_to_homogeneous_line(lines[i][0][0], lines[i][0][1], lines[i][0][2], lines[i][0][3])
             
             LI_DBG=np.array(lines[i][0,:]).reshape(2,2).transpose()
-            Sim = np.zeros(len(lines))
+            Sim = np.zeros(n)
             Sidx=0
-            for j in range(i + 1, len(lines)):
+            for j in range(i + 1, n):
                 if checked_lines[j] == 1:
                     line_j = points_to_homogeneous_line(lines[j][0][0], lines[j][0][1], lines[j][0][2], lines[j][0][3])
                     LJ_DBG=np.array(lines[j][0,:]).reshape(2,2).transpose()
                     if np.max(np.abs(LJ_DBG-LI_DBG)) != 0:
                         simil, dist, _ = line_similarity(line_i, line_j, merge_threshold, normType=0 )
                         if simil:
-                            print("Dist(%d,%d)=%f" % (i,j,dist))
+                            #print("Dist(%d,%d)=%f" % (i,j,dist))
                             Sim[Sidx]=dist
                             Sidx+=1
                             checked_lines[j] = 0
                             similarities[i, idx] = j
-                            similarities[1, 0] += 1  # i, 0
+                            similarities[i, 0] += 1  # i, 0
                             idx += 1
-                            #print('similar:', line_i, line_j, dist)
+                            #print('similar:', (i,j), dist)
                         #else:
                             #print('no similar:', dist)
                     else:
+                        #print("*"*80)
+                        #print("Iguales:\n",LJ_DBG,"\n",LI_DBG)
+                        #print("*"*80+"\n")
                         Identicas_DBG+=1
-        
-        print("Se Encontraron %d lineas identicas." % (Identicas_DBG))                
             #print(i, Sidx, np.sort(Sim))
+        #print("Similarities = \n",similarities)
+        #print("Se Encontraron %d lineas identicas." % (Identicas_DBG))                
+
 
         # call to fusiona_lines
         merged_lines = []
-        visited = np.zeros(len(lines), dtype=bool)
+        visited = np.zeros(n, dtype=bool)
 
-        for i in range(len(similarities)):
+        for i in range(n):
             if similarities[i, 0] > 0:
                 group_indices = similarities[i, 1: similarities[i, 0] + 1]
-                if not np.any(visited[group_indices]):
-                    group = [lines[k][0] for k in group_indices]
-                    homog_line = fusiona_lines(group)
-                    merged_line = lineHomo_to_linePoint(homog_line)
-                    merged_lines.append([np.array(merged_line, dtype=int)])
-                    visited[group_indices] = True
-
+                group = [lines[k][0] for k in group_indices]
+                homog_line = fusiona_lines(group)
+                #merged_line = lineHomo_to_linePoint(homog_line)
+                merged_line = lineHomo_to_linePoint2(homog_line,group)
+                merged_lines.append([np.array(merged_line, dtype=int)])
+                visited[group_indices] = True
+            else:
+                merged_lines.append(lines[i][0])
+                
         return merged_lines
 
     def build_ground_lines(self, lines_near_vps):
@@ -985,6 +1001,42 @@ def line_similarity(line_a, line_b, threshold=1, normType = 0, region=[1920, 108
     # Compute similarity
     return distance <= (threshold * threshold), distance, pts
 
+
+def lineHomo_to_linePoint2(homo_line, group):
+    #TODO: Hay que optimizar esto.
+    n = len(group)
+    p = np.zeros((2,2*n))
+    idx = 0
+    for i in range(n):
+        p[:,idx] = group[i][:2]
+        idx += 1
+        p[:,idx] = group[i][2:4]
+    
+    n *= 2
+    dMax = np.dot(p[:,0], p[:,1])
+    pMax = (0,1)
+    for i in range(n-1):
+        for j in range(i+1,n):
+            d = np.dot(p[:,i], p[:,j])
+            if d < dMax:
+                dMax=d
+                pMax = (i,j)
+    a = homo_line[0]
+    b = homo_line[1]
+    c = homo_line[2]
+    den = a*a+b*b
+    
+    x0 = p[0,i]
+    y0 = p[1,i]
+    X0=(b*(b*x0-a*y0)-a*c)/den
+    Y0=(a*(-b*x0+a*y0)-b*c)/den
+
+    x0 = p[0,j]
+    y0 = p[1,j]
+    X1=(b*(b*x0-a*y0)-a*c)/den
+    Y1=(a*(-b*x0+a*y0)-b*c)/den
+
+    return (X0, Y0, X1, Y1)
 
 def lineHomo_to_linePoint(homo_line, x_range=(0, 1000)):
     a, b, c = homo_line
