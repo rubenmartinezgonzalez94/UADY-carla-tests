@@ -107,6 +107,7 @@ class ImageProcessor:
         self.show_lines_vps = False
         self.show_merged_lines_vps = False
         self.show_homography_grond_lines = False
+        self.global_ground_lines = []
 
     def load_images(self, directory: str):
         """
@@ -208,10 +209,10 @@ class ImageProcessor:
         
 
         merged_lines_near_vps = self.merge_lines(lines_near_vps, self.hiper_params.merge_lines_threshold)
-        print("len(lines)          = ", len(lines))
-        print("len(lines_near_vps) = ", len(lines_near_vps))
-        print("len(merged_lines_near_vps) = ", len(merged_lines_near_vps))
-        print("\n")
+        # print("len(lines)          = ", len(lines))
+        # print("len(lines_near_vps) = ", len(lines_near_vps))
+        # print("len(merged_lines_near_vps) = ", len(merged_lines_near_vps))
+        # print("\n")
         # Step 14: parking grid RECONSTRUCTION by camera  image lines
         ground_lines = self.build_ground_lines(lines_near_vps)
 
@@ -855,7 +856,7 @@ class ImageProcessor:
                 merged_lines.append([np.array(merged_line, dtype=int)])
                 visited[group_indices] = True
             else:
-                merged_lines.append(lines[i][0])
+                merged_lines.append(lines[i])
                 
         return merged_lines
 
@@ -896,8 +897,29 @@ class ImageProcessor:
             p2_ground = r2_cam * scale2
 
             ground_lines.append((p1_ground, p2_ground))
+
+        self.global_ground_lines.extend(ground_lines)
         return ground_lines
 
+    def visualize_global_ground_lines(self):
+        # Crear una imagen en blanco para dibujar
+        canvas_width, canvas_height = 800, 800
+        canvas = np.ones((canvas_height, canvas_width, 3), dtype=np.uint8) * 255  # Fondo blanco
+
+        # Escalar las coordenadas al tamaño del canvas
+        scale = 50  # Escala para convertir metros a píxeles
+        offset_x, offset_z = canvas_width // 2, canvas_height // 2  # Centrar en el canvas
+
+        # Dibujar las líneas acumuladas
+        for p1, p2 in self.global_ground_lines:
+            x1, z1 = int(p1[0] * scale + offset_x), int(offset_z - p1[2] * scale)
+            x2, z2 = int(p2[0] * scale + offset_x), int(offset_z - p2[2] * scale)
+            cv2.line(canvas, (x1, z1), (x2, z2), (255, 0, 0), 2)  # Azul para las líneas
+
+        # Mostrar la imagen en una ventana de OpenCV
+        cv2.imshow("Global Ground Lines Map", canvas)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
 
 def fusiona_lines(lines):
     n = len(lines)
