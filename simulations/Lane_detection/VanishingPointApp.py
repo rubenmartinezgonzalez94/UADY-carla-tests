@@ -13,7 +13,7 @@ import PyRansac as pr
 import pickle
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-from clipLine import *
+from clipBox import *
 
 Paleta = np.load("Paleta.npy")
 
@@ -208,7 +208,7 @@ class ImageProcessor:
         lines_near_vps = self.filter_relevant_lines(lines, intersections_near_vps)
         
 
-        merged_lines_near_vps = self.merge_lines(lines_near_vps, self.hiper_params.merge_lines_threshold)
+        merged_lines_near_vps = self.merge_lines(lines_near_vps, self.hiper_params.merge_lines_threshold, [1920.,1080])
         # print("len(lines)          = ", len(lines))
         # print("len(lines_near_vps) = ", len(lines_near_vps))
         # print("len(merged_lines_near_vps) = ", len(merged_lines_near_vps))
@@ -801,7 +801,7 @@ class ImageProcessor:
                     intersections_near_vps.append((point, index))
         return intersections_near_vps
 
-    def merge_lines(self, lines, merge_threshold=0.01):
+    def merge_lines(self, lines, merge_threshold=0.01, region=[1920, 1080]):
         n = len(lines)
         checked_lines = np.ones(n)
         similarities = np.zeros((n, n + 1), dtype=int)
@@ -815,12 +815,13 @@ class ImageProcessor:
             LI_DBG=np.array(lines[i][0,:]).reshape(2,2).transpose()
             Sim = np.zeros(n)
             Sidx=0
+            clpBox = clipBox((0,region[1]//2), (region[0],region[1]//2))
             for j in range(i + 1, n):
                 if checked_lines[j] == 1:
                     line_j = points_to_homogeneous_line(lines[j][0][0], lines[j][0][1], lines[j][0][2], lines[j][0][3])
                     LJ_DBG=np.array(lines[j][0,:]).reshape(2,2).transpose()
                     if np.max(np.abs(LJ_DBG-LI_DBG)) != 0:
-                        simil, dist, _ = line_similarity(line_i, line_j, merge_threshold, normType=0 )
+                        simil, dist, _ = line_similarity(line_i, line_j, merge_threshold, normType=0, clpB=clpBox)
                         if simil:
                             #print("Dist(%d,%d)=%f" % (i,j,dist))
                             Sim[Sidx]=dist
@@ -978,7 +979,7 @@ def sortPtsIdx(p,i,j):
                   [  1,                1,         1,        1]]).astype('float64')
     return sortPts(P)
 
-def line_similarity(line_a, line_b, threshold=1, normType = 0, region=[1920, 1080]):
+def line_similarity(line_a, line_b, threshold=1, normType = 0, clpB=None):
     distance = np.inf
     if normType == 1:
         # Normalize the lines as homogeneous variable
@@ -993,11 +994,13 @@ def line_similarity(line_a, line_b, threshold=1, normType = 0, region=[1920, 108
         tmp = lineb_n - linea_n
         distance = np.dot(tmp, tmp)
     else:
-        
-        pl1, pl2, success = clipLine(line_a, (0,region[1]//2), (region[0],region[1]//2))
+        if clpB == None:
+            clpB = clipBox(0,0,640,480)
+
+        pl1, pl2, success = clpB.clipLine(line_a)
         
         if success == True:
-            pl3, pl4, success = clipLine(line_b, (0,region[1]//2), (region[0],region[1]//2))
+            pl3, pl4, success = clpB.clipLine(line_b)
             
             if success == True:
                 
