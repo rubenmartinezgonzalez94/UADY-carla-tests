@@ -710,11 +710,11 @@ class ImageProcessor:
             merged_lines_near_vps = processed_data["merged_lines_near_vps"]
             np.save('merged_lines_near_vps.npy', merged_lines_near_vps)
 
-            end_point_lines = processed_data["end_point_lines"]
+            #end_point_lines = processed_data["end_point_lines"]
             # print(end_point_lines)
-            with open("end_point_lines.pkl", "wb") as fp:  # Pickling
-                pickle.dump(end_point_lines, fp)
-            fp.close()
+            #with open("end_point_lines.pkl", "wb") as fp:  # Pickling
+            #    pickle.dump(end_point_lines, fp)
+            #fp.close()
 
             print("lines_near_vps saved")
             self.show_test = False
