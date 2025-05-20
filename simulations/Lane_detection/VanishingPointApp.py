@@ -198,31 +198,30 @@ class ImageProcessor:
                                                                     )
         # Step 13: Filter relevant lines near the vanishing points
         lines_near_vps = self.filter_relevant_lines(lines, intersections_near_vps)
-        
+        lines_near_vps = self.add_horizontal_lines(lines_near_vps, lines)
 
-        merged_lines_near_vps = self.merge_lines(lines_near_vps, self.hiper_params.merge_lines_threshold, [1920.,1080])
+        merged_lines_near_vps = self.merge_lines(lines_near_vps, self.hiper_params.merge_lines_threshold, [1920., 1080])
         # print("len(lines)          = ", len(lines))
         # print("len(lines_near_vps) = ", len(lines_near_vps))
         # print("len(merged_lines_near_vps) = ", len(merged_lines_near_vps))
         # print("\n")
         # Step 14: parking grid RECONSTRUCTION by camera  image lines
 
-
-        #end_pts_near_vps = self.get_end_pts(merged_lines_near_vps)
-        #print ("end_pts_near_vps = ", end_pts_near_vps)
+        # end_pts_near_vps = self.get_end_pts(merged_lines_near_vps)
+        # print ("end_pts_near_vps = ", end_pts_near_vps)
 
         # Step 13.5: fit lines to the endpoints
 
-        #end_pts_line_eqs, end_pts_lines, end_pts_info = self.fit_lines_to_endpoints(end_pts_near_vps,thresh=0.5, max_error=0.5)
-        #print ("*"*60,"\n","end_pts_line_eqs:",end_pts_line_eqs,"\n")
-        #print ("end_pts_lines:",end_pts_lines,"\n")
-        #print ("end_pts_info:",end_pts_info,"\n","*"*60,"\n")
+        # end_pts_line_eqs, end_pts_lines, end_pts_info = self.fit_lines_to_endpoints(end_pts_near_vps,thresh=0.5, max_error=0.5)
+        # print ("*"*60,"\n","end_pts_line_eqs:",end_pts_line_eqs,"\n")
+        # print ("end_pts_lines:",end_pts_lines,"\n")
+        # print ("end_pts_info:",end_pts_info,"\n","*"*60,"\n")
 
         # Add end point lines to the list of lines
-        #merged_lines_near_vps = np.concatenate((merged_lines_near_vps, end_pts_lines)).astype('int64')
-        
+        # merged_lines_near_vps = np.concatenate((merged_lines_near_vps, end_pts_lines)).astype('int64')
+
         # Add end point lines equations to the list of lines equations
-        #line_eqs += end_pts_line_eqs
+        # line_eqs += end_pts_line_eqs
 
         ground_lines = self.build_ground_lines(merged_lines_near_vps)
 
@@ -233,7 +232,7 @@ class ImageProcessor:
             "lines": lines,
             "line_eqs": line_eqs,
             "intersections": intersections,
-            #"end_point_lines": end_pts_lines,
+            # "end_point_lines": end_pts_lines,
             "relevant_intersections": relevant_intersections,
             "relevant_lines": relevant_lines,
             "cluster_labels": cluster_labels,
@@ -243,7 +242,7 @@ class ImageProcessor:
             "intersections_near_vps": intersections_near_vps,
             "lines_near_vps": lines_near_vps,
             "merged_lines_near_vps": merged_lines_near_vps,
-            "ground_lines" : ground_lines
+            "ground_lines": ground_lines
         }
 
     def detect_lines(self, edges: np.ndarray) -> Optional[np.ndarray]:
@@ -292,68 +291,68 @@ class ImageProcessor:
     def fit_lines_to_endpoints(self, end_pts, thresh=1., max_error=1.):
         X = end_pts[:, 0].reshape(-1, 1)
         Y = end_pts[:, 1].reshape(-1, 1)
-        
-        Lines=[]
-        Coefs =[]
+
+        Lines = []
+        Coefs = []
         linReg = pr.Ransac(e=0.2)
-        M=np.hstack([X,Y])
-        
-        N , _ = M.shape
+        M = np.hstack([X, Y])
+
+        N, _ = M.shape
         Idx = np.arange(N)
 
         [coefs, Error] = linReg.fitRansac(M, thrFact=thresh)
         if Error == None:
             return None
 
-        iX =  X[Idx[linReg.inliersIdx],0]
-        iY =  Y[Idx[linReg.inliersIdx],0]
-        
+        iX = X[Idx[linReg.inliersIdx], 0]
+        iY = Y[Idx[linReg.inliersIdx], 0]
+
         Coefs.append([coefs, Error, iX, iY])
-        
-        idxMask=np.ones(len(X)).astype('bool')
-        idxMask[linReg.inliersIdx]=False
-        
-        while(Error < max_error):
+
+        idxMask = np.ones(len(X)).astype('bool')
+        idxMask[linReg.inliersIdx] = False
+
+        while (Error < max_error):
             sX = end_pts[idxMask, 0].reshape(-1, 1)
             sy = end_pts[idxMask, 1].reshape(-1, 1)
             Idx = np.arange(N)[idxMask]
 
-            M=np.hstack([sX,sy])
-            n , _ = M.shape
+            M = np.hstack([sX, sy])
+            n, _ = M.shape
             if n < 5:
                 break
-            
+
             [coefs, Error] = linReg.fitRansac(M, thrFact=1.)
             if Error == None:
                 break
-            iX =  X[Idx[linReg.inliersIdx],0]
-            iY =  Y[Idx[linReg.inliersIdx],0]
+            iX = X[Idx[linReg.inliersIdx], 0]
+            iY = Y[Idx[linReg.inliersIdx], 0]
             Coefs.append([coefs, Error, iX, iY])
-            idxMask[Idx[linReg.inliersIdx]]=False
+            idxMask[Idx[linReg.inliersIdx]] = False
 
         end_pts_line_eqs = []
         end_pts_info = []
-        end_pts_lines = np.zeros((len(Coefs),1,4))
+        end_pts_lines = np.zeros((len(Coefs), 1, 4))
         idx = 0
         for C in Coefs:
             iX = C[2]
             iY = C[3]
-            
+
             if min(iX) != max(iX):
-                indices = sorted(range(len(iX)),key=lambda index: X[index])
+                indices = sorted(range(len(iX)), key=lambda index: X[index])
                 iX = iX[indices]
                 iY = iY[indices]
             elif min(iY) != max(iY):
-                indices = sorted(range(len(iY)),key=lambda index: Y[index])
+                indices = sorted(range(len(iY)), key=lambda index: Y[index])
                 iX = iX[indices]
                 iY = iY[indices]
             else:
                 print("fit_lines_to_endpoints:I should throw an exception!")
             end_pts_line_eqs.append(C[0][:3])
-            end_pts_lines[idx,0,:] = [iX[0], iY[0], iX[-1], iY[-1]]
+            end_pts_lines[idx, 0, :] = [iX[0], iY[0], iX[-1], iY[-1]]
             end_pts_info.append([C[1], iX, iY])
             idx += 1
-        
+
         return end_pts_line_eqs, end_pts_lines, end_pts_info
 
     def compute_intersections(
@@ -413,6 +412,7 @@ class ImageProcessor:
                 if mask[j] == True:
                     relevant_lines.append(lines[j])
                     mask[j] = False
+
         return relevant_lines
 
     def cluster_intersections(
@@ -651,13 +651,18 @@ class ImageProcessor:
 
         # Show lines near     vanishingpoints
         if self.show_lines_vps:
-            for point, (i, j) in processed_data["intersections_near_vps"]:
-                x1, y1, x2, y2 = processed_data["lines"][i][0]
-                x3, y3, x4, y4 = processed_data["lines"][j][0]
-                # Prolongar la línea i
-                cv2.line(display_image, (x1, y1), point, (255, 0, 255), 1)  # Magenta color for relevant lines
-                # Prolongar la línea j
-                cv2.line(display_image, (x3, y3), point, (255, 0, 255), 1)  # Magenta color for relevant lines
+            for line in processed_data["lines_near_vps"]:
+                x1, y1, x2, y2 = line[0]
+                cv2.line(display_image, (x1, y1), (x2, y2), (255, 0, 255), 2)
+
+            # for point, (i, j) in processed_data["intersections_near_vps"]:
+            #     x1, y1, x2, y2 = processed_data["lines"][i][0]
+            #     x3, y3, x4, y4 = processed_data["lines"][j][0]
+            #     # Prolongar la línea i
+            #     cv2.line(display_image, (x1, y1), point, (255, 0, 255), 1)  # Magenta color for relevant lines
+            #     # Prolongar la línea j
+            #     cv2.line(display_image, (x3, y3), point, (255, 0, 255), 1)  # Magenta color for relevant lines
+
         if self.show_merged_lines_vps:
             merged_lines_near_vps = processed_data["merged_lines_near_vps"]
             for line in merged_lines_near_vps:
@@ -673,7 +678,7 @@ class ImageProcessor:
             canvas = np.ones((canvas_height, canvas_width, 3), dtype=np.uint8) * 255  # Fondo blanco
 
             # Escalar las coordenadas al tamaño del canvas
-            scale = 50  # Escala para convertir metros a píxeles
+            scale = 25  # Escala para convertir metros a píxeles
             offset_x, offset_z = canvas_width // 2, canvas_height // 2  # Centrar en el canvas
 
             # Dibujar las líneas del suelo
@@ -696,8 +701,9 @@ class ImageProcessor:
             cv2.waitKey(1)  # Refrescar la ventana
 
         if self.show_test:
+            # self.visualize_global_ground_lines()
             image_info = self.images[self.current_image_index]
-            # print(image_info.image_path)
+            print(image_info.image_path)
             lines_near_vps = processed_data["lines_near_vps"]
             np.save('lines_near_vps.npy', lines_near_vps)
 
@@ -705,11 +711,10 @@ class ImageProcessor:
             np.save('merged_lines_near_vps.npy', merged_lines_near_vps)
 
             end_point_lines = processed_data["end_point_lines"]
-            #print(end_point_lines)
-            with open("end_point_lines.pkl", "wb") as fp:   #Pickling
+            # print(end_point_lines)
+            with open("end_point_lines.pkl", "wb") as fp:  # Pickling
                 pickle.dump(end_point_lines, fp)
             fp.close()
-            
 
             print("lines_near_vps saved")
             self.show_test = False
@@ -829,43 +834,42 @@ class ImageProcessor:
         n = len(lines)
         checked_lines = np.ones(n)
         similarities = np.zeros((n, n + 1), dtype=int)
-        Identicas_DBG=0
-        #print("len(lines) = ",len(lines))
+        Identicas_DBG = 0
+        # print("len(lines) = ",len(lines))
         for i in range(n):
-            similarities[i, 0] = 0 #Number of similar elements.
+            similarities[i, 0] = 0  # Number of similar elements.
             idx = 1
             line_i = points_to_homogeneous_line(lines[i][0][0], lines[i][0][1], lines[i][0][2], lines[i][0][3])
-            
-            LI_DBG=np.array(lines[i][0,:]).reshape(2,2).transpose()
+
+            LI_DBG = np.array(lines[i][0, :]).reshape(2, 2).transpose()
             Sim = np.zeros(n)
-            Sidx=0
-            clpBox = clipBox((0,region[1]//2), (region[0],region[1]//2))
+            Sidx = 0
+            clpBox = clipBox((0, region[1] // 2), (region[0], region[1] // 2))
             for j in range(i + 1, n):
                 if checked_lines[j] == 1:
                     line_j = points_to_homogeneous_line(lines[j][0][0], lines[j][0][1], lines[j][0][2], lines[j][0][3])
-                    LJ_DBG=np.array(lines[j][0,:]).reshape(2,2).transpose()
-                    if np.max(np.abs(LJ_DBG-LI_DBG)) != 0:
+                    LJ_DBG = np.array(lines[j][0, :]).reshape(2, 2).transpose()
+                    if np.max(np.abs(LJ_DBG - LI_DBG)) != 0:
                         simil, dist, _ = line_similarity(line_i, line_j, merge_threshold, normType=0, clpB=clpBox)
                         if simil:
-                            #print("Dist(%d,%d)=%f" % (i,j,dist))
-                            Sim[Sidx]=dist
-                            Sidx+=1
+                            # print("Dist(%d,%d)=%f" % (i,j,dist))
+                            Sim[Sidx] = dist
+                            Sidx += 1
                             checked_lines[j] = 0
                             similarities[i, idx] = j
                             similarities[i, 0] += 1  # i, 0
                             idx += 1
-                            #print('similar:', (i,j), dist)
-                        #else:
-                            #print('no similar:', dist)
+                            # print('similar:', (i,j), dist)
+                        # else:
+                        # print('no similar:', dist)
                     else:
-                        #print("*"*80)
-                        #print("Iguales:\n",LJ_DBG,"\n",LI_DBG)
-                        #print("*"*80+"\n")
-                        Identicas_DBG+=1
-            #print(i, Sidx, np.sort(Sim))
-        #print("Similarities = \n",similarities)
-        #print("Se Encontraron %d lineas identicas." % (Identicas_DBG))                
-
+                        # print("*"*80)
+                        # print("Iguales:\n",LJ_DBG,"\n",LI_DBG)
+                        # print("*"*80+"\n")
+                        Identicas_DBG += 1
+            # print(i, Sidx, np.sort(Sim))
+        # print("Similarities = \n",similarities)
+        # print("Se Encontraron %d lineas identicas." % (Identicas_DBG))
 
         # call to fusiona_lines
         merged_lines = []
@@ -876,13 +880,13 @@ class ImageProcessor:
                 group_indices = similarities[i, 1: similarities[i, 0] + 1]
                 group = [lines[k][0] for k in group_indices]
                 homog_line = fusiona_lines(group)
-                #merged_line = lineHomo_to_linePoint(homog_line)
-                merged_line = lineHomo_to_linePoint2(homog_line,group)
+                # merged_line = lineHomo_to_linePoint(homog_line)
+                merged_line = lineHomo_to_linePoint2(homog_line, group)
                 merged_lines.append([np.array(merged_line, dtype=int)])
                 visited[group_indices] = True
             else:
                 merged_lines.append(lines[i])
-                
+
         return merged_lines
 
     def build_ground_lines(self, lines_near_vps):
@@ -915,16 +919,19 @@ class ImageProcessor:
             r2_cam = K_inv @ p2_img
 
             # Escalar rayos para intersectar el plano Z=0 (suelo)
-            scale1 = camera_height / r1_cam[1]
-            scale2 = camera_height / r2_cam[1]
+            scale1 = camera_height / r1_cam[1] if r1_cam[1] != 0 else 1
+            scale2 = camera_height / r2_cam[1] if r2_cam[1] != 0 else 1
 
             p1_ground = r1_cam * scale1
             p2_ground = r2_cam * scale2
 
             ground_lines.append((p1_ground, p2_ground))
 
-        self.global_ground_lines.extend(ground_lines)
+        self.add_to_global_ground_lines(ground_lines)
         return ground_lines
+
+    def add_to_global_ground_lines(self, new_ground_lines, H=None):
+        self.global_ground_lines.extend(new_ground_lines)
 
     def visualize_global_ground_lines(self):
         # Crear una imagen en blanco para dibujar
@@ -945,6 +952,14 @@ class ImageProcessor:
         cv2.imshow("Global Ground Lines Map", canvas)
         cv2.waitKey(0)
         cv2.destroyAllWindows()
+
+    def add_horizontal_lines(self, lines_near_vps, lines):
+        for line in lines:
+            x1, y1, x2, y2 = line[0]
+            if abs(y1 - y2) == 0:
+                lines_near_vps.append(line)
+        return lines_near_vps
+
 
 def fusiona_lines(lines):
     n = len(lines)
@@ -978,32 +993,32 @@ def fusiona_lines(lines):
     result_line = acumL / acumL[2]
     return result_line
 
-
 def points_to_homogeneous_line(x1, y1, x2, y2):
     return np.cross([x1, y1, 1], [x2, y2, 1])
 
 
-
 def sortPts(P):
     theta = np.zeros(4)
-    mX = np.mean(P[0,: ])
+    mX = np.mean(P[0, :])
     mY = np.mean(P[1, :])
     for k in range(4):
         Dx = P[0, k] - mX
         Dy = P[1, k] - mY
         theta[k] = np.arctan2(Dy, Dx)
-    
-    indices = sorted(range(len(theta)), key = lambda index: theta[index])
+
+    indices = sorted(range(len(theta)), key=lambda index: theta[index])
     sP = P[:, indices]
     return sP, indices
 
-def sortPtsIdx(p,i,j):
-    P = np.array([[p[i, 0, 0],p[i, 0, 2],p[j, 0, 0],p[j, 0, 2]],
-                  [p[i, 0, 1],p[i, 0, 3],p[j, 0, 1],p[j, 0, 3]],
-                  [  1,                1,         1,        1]]).astype('float64')
+
+def sortPtsIdx(p, i, j):
+    P = np.array([[p[i, 0, 0], p[i, 0, 2], p[j, 0, 0], p[j, 0, 2]],
+                  [p[i, 0, 1], p[i, 0, 3], p[j, 0, 1], p[j, 0, 3]],
+                  [1, 1, 1, 1]]).astype('float64')
     return sortPts(P)
 
-def line_similarity(line_a, line_b, threshold=1, normType = 0, clpB=None):
+
+def line_similarity(line_a, line_b, threshold=1, normType=0, clpB=None):
     distance = np.inf
     if normType == 1:
         # Normalize the lines as homogeneous variable
@@ -1019,73 +1034,74 @@ def line_similarity(line_a, line_b, threshold=1, normType = 0, clpB=None):
         distance = np.dot(tmp, tmp)
     else:
         if clpB == None:
-            clpB = clipBox(0,0,640,480)
+            clpB = clipBox(0, 0, 640, 480)
 
         pl1, pl2, success = clpB.clipLine(line_a)
-        
+
         if success == True:
             pl3, pl4, success = clpB.clipLine(line_b)
-            
+
             if success == True:
-                
-                P = np.hstack([pl1,pl2,pl3,pl4]).reshape(4,3).transpose()
-                
+
+                P = np.hstack([pl1, pl2, pl3, pl4]).reshape(4, 3).transpose()
+
                 sP, idx = sortPts(P)
-                
-                d=[]
-                tmp = sP[:2,0]-sP[:2,1]
-                d.append(np.dot(tmp, tmp)) #Squared Distance between P[0,:] and P[1,:]
-                tmp = sP[:2,2]-sP[:2,3]
-                d.append(np.dot(tmp, tmp)) #Squared Distance between P[0,:] and P[1,:]
+
+                d = []
+                tmp = sP[:2, 0] - sP[:2, 1]
+                d.append(np.dot(tmp, tmp))  # Squared Distance between P[0,:] and P[1,:]
+                tmp = sP[:2, 2] - sP[:2, 3]
+                d.append(np.dot(tmp, tmp))  # Squared Distance between P[0,:] and P[1,:]
                 pts = P.copy()
                 if d[0] > d[1]:
                     distance = d[0]
-                    pts = np.hstack([pts, np.array(sP[:,0],ndmin=2).transpose()])
-                    pts = np.hstack([pts, np.array(sP[:,1],ndmin=2).transpose()])
+                    pts = np.hstack([pts, np.array(sP[:, 0], ndmin=2).transpose()])
+                    pts = np.hstack([pts, np.array(sP[:, 1], ndmin=2).transpose()])
                 else:
                     distance = d[1]
-                    pts = np.hstack([pts, np.array(sP[:,2],ndmin=2).transpose()])
-                    pts = np.hstack([pts, np.array(sP[:,3],ndmin=2).transpose()])
+                    pts = np.hstack([pts, np.array(sP[:, 2], ndmin=2).transpose()])
+                    pts = np.hstack([pts, np.array(sP[:, 3], ndmin=2).transpose()])
 
     # Compute similarity
     return distance <= (threshold * threshold), distance, pts
 
 
 def lineHomo_to_linePoint2(homo_line, group):
-    #TODO: Hay que optimizar esto.
+    # TODO: Hay que optimizar esto.
     n = len(group)
-    p = np.zeros((2,2*n))
+    p = np.zeros((2, 2 * n))
     idx = 0
     for i in range(n):
-        p[:,idx] = group[i][:2]
+        p[:, idx] = group[i][:2]
         idx += 1
-        p[:,idx] = group[i][2:4]
-    
+        p[:, idx] = group[i][2:4]
+
     n *= 2
-    dMax = np.dot(p[:,0], p[:,1])
-    pMax = (0,1)
-    for i in range(n-1):
-        for j in range(i+1,n):
-            d = np.dot(p[:,i], p[:,j])
+    dMax = np.dot(p[:, 0], p[:, 1])
+    pMax = (0, 1)
+    for i in range(n - 1):
+        for j in range(i + 1, n):
+            d = np.dot(p[:, i], p[:, j])
             if d < dMax:
-                dMax=d
-                pMax = (i,j)
+                dMax = d
+                pMax = (i, j)
     a = homo_line[0]
     b = homo_line[1]
     c = homo_line[2]
-    den = a*a+b*b
-    
-    x0 = p[0,i]
-    y0 = p[1,i]
-    X0=(b*(b*x0-a*y0)-a*c)/den
-    Y0=(a*(-b*x0+a*y0)-b*c)/den
+    den = a * a + b * b
 
-    x0 = p[0,j]
-    y0 = p[1,j]
-    X1=(b*(b*x0-a*y0)-a*c)/den
-    Y1=(a*(-b*x0+a*y0)-b*c)/den
+    x0 = p[0, i]
+    y0 = p[1, i]
+    X0 = (b * (b * x0 - a * y0) - a * c) / den
+    Y0 = (a * (-b * x0 + a * y0) - b * c) / den
+
+    x0 = p[0, j]
+    y0 = p[1, j]
+    X1 = (b * (b * x0 - a * y0) - a * c) / den
+    Y1 = (a * (-b * x0 + a * y0) - b * c) / den
 
     return (X0, Y0, X1, Y1)
+
 
 def lineHomo_to_linePoint(homo_line, x_range=(0, 1000)):
     a, b, c = homo_line
@@ -1115,10 +1131,9 @@ def load_tagged_images(directory: str) -> List[ImageInfo]:
 
 
 def main(sequence='../manual_sequence/sec4/'):
-
-    print("*"*80)
-    print(("*"+" "*78+"*"+"\n")*5,end='')
-    print("*"*80)
+    print("*" * 80)
+    print(("*" + " " * 78 + "*" + "\n") * 5, end='')
+    print("*" * 80)
     # Create an instance of ImageProcessor
     hiper_params = HiperParams()
     processor = ImageProcessor(hiper_params)
