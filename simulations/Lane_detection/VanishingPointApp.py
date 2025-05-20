@@ -152,15 +152,7 @@ class ImageProcessor:
         line_eqs, end_pts = self.compute_line_equations(lines)
         
         # print(end_pts)
-        # Step 5.5: fit lines to the endpoints
-        #end_pts_line_eqs, end_pts_lines, end_pts_info = self.fit_lines_to_endpoints(end_pts,thresh=0.5, max_error=0.5)
-
-        # Add end point lines to the list of lines
-        #lines = np.concatenate((lines, end_pts_lines)).astype('int64')
         
-        # Add end point lines equations to the list of lines equations
-        #line_eqs += end_pts_line_eqs
-
         # Step 6: Compute intersections between lines
         intersections = self.compute_intersections(lines, line_eqs)
 
@@ -214,7 +206,25 @@ class ImageProcessor:
         # print("len(merged_lines_near_vps) = ", len(merged_lines_near_vps))
         # print("\n")
         # Step 14: parking grid RECONSTRUCTION by camera  image lines
-        ground_lines = self.build_ground_lines(lines_near_vps)
+
+
+        #end_pts_near_vps = self.get_end_pts(merged_lines_near_vps)
+        #print ("end_pts_near_vps = ", end_pts_near_vps)
+
+        # Step 13.5: fit lines to the endpoints
+
+        #end_pts_line_eqs, end_pts_lines, end_pts_info = self.fit_lines_to_endpoints(end_pts_near_vps,thresh=0.5, max_error=0.5)
+        #print ("*"*60,"\n","end_pts_line_eqs:",end_pts_line_eqs,"\n")
+        #print ("end_pts_lines:",end_pts_lines,"\n")
+        #print ("end_pts_info:",end_pts_info,"\n","*"*60,"\n")
+
+        # Add end point lines to the list of lines
+        #merged_lines_near_vps = np.concatenate((merged_lines_near_vps, end_pts_lines)).astype('int64')
+        
+        # Add end point lines equations to the list of lines equations
+        #line_eqs += end_pts_line_eqs
+
+        ground_lines = self.build_ground_lines(merged_lines_near_vps)
 
         return {
             "bottom_half": bottom_half,
@@ -264,6 +274,20 @@ class ImageProcessor:
                 line_eq = self.null_space(M)[:, 0]
                 line_eqs.append(line_eq)
         return line_eqs, end_pts
+
+    def get_end_pts(self, lines):
+
+        n = len(lines)
+        end_pts = np.zeros((2 * n, 2))
+        if lines is not None:
+            idx = 0
+            for line in lines:
+                x1, y1, x2, y2 = line[0]
+                end_pts[idx, :] += [x1, y1]
+                idx += 1
+                end_pts[idx, :] += [x2, y2]
+                idx += 1
+        return end_pts
 
     def fit_lines_to_endpoints(self, end_pts, thresh=1., max_error=1.):
         X = end_pts[:, 0].reshape(-1, 1)
