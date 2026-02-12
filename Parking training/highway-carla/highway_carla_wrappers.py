@@ -27,21 +27,41 @@ class CarlaInitRoadWrapper(Wrapper):
 
     def get_parking_lanes_from_carla(self):
         """
-        Extrae una sola línea central del cajón de estacionamiento desde las coordenadas de sus esquinas.
+        Construye 7 cajones de estacionamiento a partir del cajón objetivo actual en CARLA.
+        Agrega 3 cajones a la izquierda y 3 a la derecha manteniendo el objetivo al centro.
         """
-        # Usamos las esquinas para obtener la línea central del cajón
+        # Cajón objetivo actual
         p1 = self.carla_client.get_location_by_coordinates(6, -30, 0)
         p2 = self.carla_client.get_location_by_coordinates(11.5, -30, 0)
 
-        entry = [p1.x, p1.y]
-        exit = [p2.x, p2.y]
-        width = 3  # Ancho aproximado del cajón
+        width = 2.8  # ancho entre cajones (espacio lateral)
+        num_slots_each_side = 3  # cantidad de cajones a cada lado
 
-        return [{
-            "entry": entry,
-            "exit": exit,
-            "width": width
-        }]
+        # Vector base del cajón
+        direction = np.array([p2.x - p1.x, p2.y - p1.y])
+        direction = direction / np.linalg.norm(direction)
+
+        # Vector perpendicular (90° hacia arriba)
+        perp = np.array([-direction[1], direction[0]])
+
+        # Centro del cajón objetivo
+        center_entry = np.array([p1.x, p1.y])
+        center_exit = np.array([p2.x, p2.y])
+
+        lanes = []
+
+        for i in range(-num_slots_each_side, num_slots_each_side + 1):
+            offset = i * width
+            entry = center_entry + perp * offset
+            exit = center_exit + perp * offset
+
+            lanes.append({
+                "entry": entry.tolist(),
+                "exit": exit.tolist(),
+                "width": width
+            })
+
+        return lanes
 
     def build_custom_road_network(self):
         net = RoadNetwork()
@@ -147,7 +167,7 @@ class CarlaInitRoadWrapper(Wrapper):
             raise ValueError("No hay cajones de estacionamiento definidos en el RoadNetwork.")
 
         # Elegir un cajón específico (ej: el primero, o puedes modificarlo)
-        selected_lane_id = lane_ids[0]  # Primer cajón
+        selected_lane_id = lane_ids[3]  # Primer cajón
         lane = lanes_dict[selected_lane_id]
 
         # Crear el Landmark en el centro del cajón (igual que ParkingEnv)

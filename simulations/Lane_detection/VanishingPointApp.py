@@ -633,13 +633,13 @@ class ImageProcessor:
 
         if self.show_vps:
             vp1 = processed_data["vanishing_points"][0]
-            cv2.drawMarker(display_image, (int(vp1.x), int(vp1.y)), (0, 0, 255), cv2.MARKER_TILTED_CROSS, 30,
+            cv2.drawMarker(display_image, (int(vp1.x), int(vp1.y)), (0, 0, 255), cv2.MARKER_TILTED_CROSS, 10,
                            5)  # Red cross for vanishing points
             cv2.line(display_image, (center_x, center_y), (int(vp1.x), int(vp1.y)), (0, 0, 255),
                      2)  # Red line from center to vanishing point
 
             vp2 = processed_data["second_vanishing_point"]
-            cv2.drawMarker(display_image, (int(vp2['x']), int(vp2['y'])), (0, 0, 255), cv2.MARKER_TILTED_CROSS, 30,
+            cv2.drawMarker(display_image, (int(vp2['x']), int(vp2['y'])), (0, 0, 255), cv2.MARKER_TILTED_CROSS, 10,
                            5)  # Red cross for second vanishing point
             cv2.line(display_image, (center_x, center_y), (int(vp2['x']), int(vp2['y'])), (0, 0, 255),
                      2)  # Red line from center to second vanishing point

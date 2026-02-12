@@ -6,11 +6,11 @@ from carla_parking import SimulationParking
 
 def main(simulation):
 
-   env = gym.make("parking-v0")
+   env = gym.make("parking-v0", render_mode="human")
 
    env = CarlaInitRoadWrapper(env, carla_client=simulation, carla_vehicle=vehicle)
-   # env = CarlaObservationWrapper(env, carla_client=simulation, carla_vehicle=vehicle)
-   # env = CarlaActionWrapper(env, carla_client=simulation, carla_vehicle=vehicle)
+   env = CarlaObservationWrapper(env, carla_client=simulation, carla_vehicle=vehicle)
+   env = CarlaActionWrapper(env, carla_client=simulation, carla_vehicle=vehicle)
 
    # SAC hyperparams:
    model = SAC(
@@ -22,6 +22,7 @@ def main(simulation):
            goal_selection_strategy="future",
        ),
        verbose=1,
+       learning_starts=int(1e4),
        buffer_size=int(1e6),
        learning_rate=1e-3,
        gamma=0.95,
