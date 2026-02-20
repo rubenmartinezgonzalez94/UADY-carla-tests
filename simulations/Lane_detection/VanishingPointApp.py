@@ -88,7 +88,7 @@ class ImageProcessor:
     def __init__(self, hiper_params: HiperParams):
         self.hiper_params = hiper_params
         self.images: List[ImageInfo] = []
-        self.current_image_index: int = 0
+        self.current_image_index: int = 120
         self.paused: bool = True
         self.show_contours: bool = False
         self.show_lines: bool = False
@@ -107,6 +107,9 @@ class ImageProcessor:
         self.show_lines_vps = False
         self.show_merged_lines_vps = False
         self.show_homography_grond_lines = False
+        self.show_ransac = False
+        self.ransac_results = {}  # {image_index: [(n_inliers, avg_dist, H, it), ...] top 3}
+        self.export_ransac = False
         self.global_ground_lines = []
 
     def load_images(self, directory: str):
@@ -507,6 +510,8 @@ class ImageProcessor:
             "W: líneas relevantes(Step 13 near vanishing points).",
             "M: líneas relevantes Mezcladas(Step 14 near vanishing points).",
             "H: Reconstrucción de líneas en el plano del suelo.",
+            "S: RANSAC grid reconstruction (una sola vez por imagen).",
+            "X: Exportar ransac_results a .npy",
             "T: Test.",
             "ESC: Salir."
         ]
@@ -671,6 +676,56 @@ class ImageProcessor:
                 pt2 = x2, y2
                 cv2.line(display_image, pt1, pt2, (0, 255, 0), 1)
 
+        # Show RANSAC projected grid
+        if self.show_ransac:
+            idx = self.current_image_index
+            # Run main_process only if not cached for this image
+            if idx not in self.ransac_results:
+                print(f"Running RANSAC for image {idx}...")
+                vp1_obj = processed_data["vanishing_points"][0]
+                vp2_dict = processed_data["second_vanishing_point"]
+                vp1_arr = np.array([vp1_obj.x, vp1_obj.y, 1.0])
+                vp2_arr = np.array([vp2_dict['x'], vp2_dict['y'], 1.0])
+                results = main_process(
+                    processed_data["merged_lines_near_vps"],
+                    vp1_arr, vp2_arr,
+                    thr=10, iterations=100, grid_size=5,
+                    region=(1920, 1080)
+                )
+                if results:
+                    self.ransac_results[idx] = results[:3]  # top 3
+                    for rank, (n, d, _, _) in enumerate(self.ransac_results[idx]):
+                        print(f"  #{rank+1}: {n} inliers, avg_dist={d:.3f}")
+                else:
+                    self.ransac_results[idx] = None
+                    print("  No valid RANSAC result found.")
+
+            # Draw cached result (best = first of top 3)
+            top = self.ransac_results.get(idx)
+            if top is not None:
+                n_inliers, avg_dist, M_best, _ = top[0]
+                grid_lines_h = def_grid_lines(-5, 5, -5, 5, 1, 1)
+                try:
+                    Hl = np.linalg.inv(M_best).T
+                    projected = Hl @ grid_lines_h
+                    projected = projected / np.linalg.norm(projected, axis=0)
+                    cpB = clipBox((0, 540), (1920, 540))
+                    for k in range(projected.shape[1]):
+                        if projected[2, k] > 0.:
+                            projected[2, k] = -projected[2, k]
+                        P1, P2, existe = cpB.clipLine(projected[:, k])
+                        if existe:
+                            x0, y0 = P1[:2] / P1[2]
+                            x1, y1 = P2[:2] / P2[2]
+                            cv2.line(display_image, (int(x0), int(y0)),
+                                     (int(x1), int(y1)), (0, 200, 255), 2)
+                    cv2.putText(display_image,
+                                f"RANSAC: inliers={n_inliers}  avg_dist={avg_dist:.3f}",
+                                (10, height - 20), cv2.FONT_HERSHEY_SIMPLEX,
+                                0.6, (0, 200, 255), 2)
+                except np.linalg.LinAlgError:
+                    pass
+
         if self.show_homography_grond_lines:
             ground_lines = processed_data["ground_lines"]
             # Crear una imagen en blanco para dibujar
@@ -699,6 +754,14 @@ class ImageProcessor:
             # Mostrar la imagen en una ventana de OpenCV
             cv2.imshow("Homography Ground Lines", canvas)
             cv2.waitKey(1)  # Refrescar la ventana
+
+        if self.export_ransac:
+            if self.ransac_results:
+                np.save('ransac_results.npy', self.ransac_results)
+                print(f"ransac_results exportado a ransac_results.npy ({len(self.ransac_results)} imágenes)")
+            else:
+                print("No hay resultados RANSAC para exportar.")
+            self.export_ransac = False
 
         if self.show_test:
             # self.visualize_global_ground_lines()
@@ -1020,6 +1083,7 @@ def sortPtsIdx(p, i, j):
 
 def line_similarity(line_a, line_b, threshold=1, normType=0, clpB=None):
     distance = np.inf
+    pts = None
     if normType == 1:
         # Normalize the lines as homogeneous variable
         linea_n = line_a / line_a[2]
@@ -1118,6 +1182,248 @@ def lineHomo_to_linePoint(homo_line, x_range=(0, 1000)):
     return (x1, y1, x2, y2)
 
 
+## ---------------------------------------------------------------------------
+## Grid reconstruction helper functions (ported from grid_reconstruction_by_VP.ipynb)
+## ---------------------------------------------------------------------------
+
+def norm_points(p):
+    """Normalize homogeneous points/coordinates by dividing by the last row."""
+    r, c = p.shape
+    for i in range(c):
+        if p[-1, i] != 0:
+            p[:, i] /= p[-1, i]
+    return p
+
+
+def def_grid_lines(r0, r1, c0, c1, w, h):
+    """Generate homogeneous line equations for a regular grid.
+    Returns a (3, N) array where each column [A, B, C] represents Ax+By+C=0."""
+    R = np.linspace(r0, r1, r1 - r0 + 1)
+    C = np.linspace(c0, c1, c1 - c0 + 1)
+    n = len(R) + len(C)
+    l = np.zeros((3, n))
+    idx = 0
+    for i in R:
+        l[:, idx] = [0, 1, h * i]
+        idx += 1
+    for i in C:
+        l[:, idx] = [1, 0, w * i]
+        idx += 1
+    return l
+
+
+def get_line_endpoints_ext(line, width, height):
+    """Extend a line segment (x1,y1,x2,y2) to the image boundaries.
+    Returns two (x,y) tuples."""
+    x1, y1, x2, y2 = line
+    if x1 == x2:
+        # Vertical line
+        return (int(x1), 0), (int(x1), int(height))
+    slope = (y2 - y1) / (x2 - x1)
+    intercept = y1 - slope * x1
+
+    points = []
+    for x in [0, width]:
+        y = slope * x + intercept
+        if 0 <= y <= height:
+            points.append((int(x), int(y)))
+    for y in [0, height]:
+        if slope != 0:
+            x = (y - intercept) / slope
+            if 0 <= x <= width:
+                points.append((int(x), int(y)))
+
+    if len(points) >= 2:
+        return points[0], points[1]
+    else:
+        return (x1, y1), (x2, y2)
+
+
+def line_passes_near_vp(line, vp, threshold=10):
+    """Check whether a line segment passes near a vanishing point."""
+    x1, y1, x2, y2 = line
+    vp_x, vp_y = vp[0], vp[1]
+    if x1 == x2:
+        # Vertical line: check horizontal distance to VP
+        return abs(vp_x - x1) < threshold
+    slope = (y2 - y1) / (x2 - x1)
+    intercept = y1 - slope * x1
+    return abs(vp_y - (slope * vp_x + intercept)) < threshold
+
+
+def distance_between_lines(line1, line2, img_width, img_height):
+    """Distance between two lines measured as Euclidean distance
+    between the midpoints of their extensions to the image boundary."""
+    (x1_1, y1_1), (x2_1, y2_1) = get_line_endpoints_ext(line1[0], img_width, img_height)
+    (x1_2, y1_2), (x2_2, y2_2) = get_line_endpoints_ext(line2[0], img_width, img_height)
+    mid1 = np.array([(x1_1 + x2_1) / 2, (y1_1 + y2_1) / 2])
+    mid2 = np.array([(x1_2 + x2_2) / 2, (y1_2 + y2_2) / 2])
+    return np.linalg.norm(mid1 - mid2)
+
+
+def select_lines_with_distance(lines_list, img_width, img_height,
+                                threshold_min, threshold_max, max_attempts=1000):
+    """Select two random lines whose midpoint distance is within [threshold_min, threshold_max]."""
+    n = len(lines_list)
+    if n < 2:
+        raise ValueError("Need at least 2 lines to select a pair")
+    for _ in range(max_attempts):
+        idx1, idx2 = random.sample(range(n), 2)
+        distance = distance_between_lines(lines_list[idx1], lines_list[idx2],
+                                          img_width, img_height)
+        if threshold_min <= distance <= threshold_max:
+            return idx1, idx2, distance
+    raise ValueError(f"No valid line pair found after {max_attempts} attempts")
+
+
+def order_lines_by_intersection(lines, horizon_y=540, offset=10):
+    """Order homogeneous lines by the x-coordinate of their intersection
+    with a horizontal line just below the horizon."""
+    H10 = np.array([0, 1, -(horizon_y + offset)])
+    intersections = []
+    for line in lines:
+        intersection = np.cross(line, H10)
+        if intersection[-1] != 0:
+            intersection = intersection / intersection[-1]
+        intersections.append(intersection)
+    sorted_indices = np.argsort([pt[0] for pt in intersections])
+    return [lines[i] for i in sorted_indices]
+
+
+def main_process(lines_near_vps, vp1, vp2, thr=1, iterations=100,
+                 grid_size=5, region=(1920, 1080)):
+    """RANSAC grid reconstruction loop.
+
+    Separates *lines_near_vps* into two groups (one per vanishing point),
+    samples 2 lines from each group per iteration, computes a homography,
+    projects a regular grid, and evaluates how many detected lines match
+    the projected grid using :func:`line_similarity`.
+
+    Parameters
+    ----------
+    lines_near_vps : list
+        Detected line segments (each element shaped ``(1, 4)``).
+    vp1, vp2 : array-like
+        Homogeneous vanishing-point coordinates ``[x, y, 1]``.
+    thr : float
+        Similarity threshold passed to :func:`line_similarity`.
+    iterations : int
+        Number of RANSAC iterations.
+    grid_size : int
+        Half-size of the projected grid (from ``-grid_size`` to ``+grid_size``).
+    region : tuple
+        ``(width, height)`` of the image.
+
+    Returns
+    -------
+    list of tuples
+        ``(n_inliers, avg_distance, H, iteration_index)`` sorted by
+        ``n_inliers`` descending.
+    """
+    img_width, img_height = region
+
+    # --- separate lines by vanishing point --------------------------------
+    lines_vp1 = [l for l in lines_near_vps
+                 if line_passes_near_vp(l[0], vp1, threshold=10)]
+    lines_vp2 = [l for l in lines_near_vps
+                 if line_passes_near_vp(l[0], vp2, threshold=10)]
+
+    if len(lines_vp1) < 2 or len(lines_vp2) < 2:
+        return []
+
+    results = []
+
+    for it in range(iterations):
+        # Step 1: Select random lines (2 per VP)
+        try:
+            idx1, idx2, _ = select_lines_with_distance(
+                lines_vp1, img_width, img_height, 50, 100)
+            random_lines_vp1 = [lines_vp1[idx1], lines_vp1[idx2]]
+
+            idx1, idx2, _ = select_lines_with_distance(
+                lines_vp2, img_width, img_height, 50, 100)
+            random_lines_vp2 = [lines_vp2[idx1], lines_vp2[idx2]]
+        except ValueError:
+            continue
+
+        homogeneous_lines = [
+            points_to_homogeneous_line(*line[0])
+            for line in random_lines_vp1 + random_lines_vp2
+        ]
+        ordered_lines = order_lines_by_intersection(homogeneous_lines)
+
+        # Step 2: Find 4 intersections → correspondence points
+        l1 = ordered_lines[1]
+        l2 = ordered_lines[0]
+        l3 = ordered_lines[2]
+        l4 = ordered_lines[3]
+
+        p1 = np.cross(l2, l3)
+        p2 = np.cross(l1, l3)
+        p3 = np.cross(l1, l4)
+        p4 = np.cross(l2, l4)
+
+        p = np.zeros((3, 4))
+        p[:, 0] = p1
+        p[:, 1] = p2
+        p[:, 2] = p3
+        p[:, 3] = p4
+        p = norm_points(p)
+
+        # Unit square
+        pr_sq = np.ones((3, 4))
+        pr_sq[:2, 0] = [0., 1.]
+        pr_sq[:2, 1] = [0., 0.]
+        pr_sq[:2, 2] = [1., 0.]
+        pr_sq[:2, 3] = [1., 1.]
+        pr_sq = norm_points(pr_sq)
+
+        # Step 3: Compute homography
+        src_pts = np.float32([pr_sq[:, k] for k in range(4)])
+        dst_pts = np.float32([p[:, k] for k in range(4)])
+        M, _ = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC)
+        if M is None:
+            continue
+
+        # Step 4: Project grid
+        grid_lines = def_grid_lines(-grid_size, grid_size,
+                                    -grid_size, grid_size, 1, 1)
+        try:
+            Hl = np.linalg.inv(M).T
+        except np.linalg.LinAlgError:
+            continue
+
+        projected_lines = Hl @ grid_lines
+        projected_lines = projected_lines / np.linalg.norm(
+            projected_lines, axis=0)
+
+        # Step 5: Evaluate similarity
+        similarities = 0
+        Dist = 0
+        cpl = clipBox((0, region[1] // 2), (region[0], region[1] // 2))
+        for line in projected_lines.T:
+            for original_line in lines_near_vps:
+                orig = original_line[0]
+                homo_line = points_to_homogeneous_line(
+                    orig[0], orig[1], orig[2], orig[3])
+                is_simil, d, _ = line_similarity(
+                    line, homo_line, threshold=thr, normType=0, clpB=cpl)
+                if is_simil:
+                    similarities += 1
+                    Dist += d
+                    break
+
+        if similarities > 0:
+            results.append((similarities, Dist / similarities, M, it))
+
+    # Step 6: Rank by number of inliers (descending)
+    results.sort(key=lambda x: x[0], reverse=True)
+    return results
+
+
+## ---------------------------------------------------------------------------
+
+
 def load_tagged_images(directory: str) -> List[ImageInfo]:
     """
     Loads tagged images from a directory.
@@ -1210,6 +1516,10 @@ def main(sequence='../manual_sequence/sec4/'):
             processor.show_lines_vps = not processor.show_lines_vps
         elif key == ord('m'):
             processor.show_merged_lines_vps = not processor.show_merged_lines_vps
+        elif key == ord('s'):  # S: Toggle RANSAC grid reconstruction
+            processor.show_ransac = not processor.show_ransac
+        elif key == ord('x'):  # X: Export ransac_results to .npy
+            processor.export_ransac = True
         elif key == ord('h'):  # H: Show homography
             processor.show_homography_grond_lines = not processor.show_homography_grond_lines
         elif key == 81 or key == 52:  # Left arrow key
